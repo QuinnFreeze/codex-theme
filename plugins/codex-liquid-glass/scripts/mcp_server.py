@@ -1,169 +1,115 @@
 #!/usr/bin/env python3
-"""Local stdio MCP server exposing wallpaper customization and theme status."""
+"""Dependency-free newline JSON-RPC stdio MCP for local theme management."""
 import json
+import os
 import sys
-from theme_control import Controller, ThemeError, load_theme_root
+from pathlib import Path
 
-PROTOCOL_VERSION = "2024-11-05"
+from theme_control import Controller, ThemeError
+
+
+def schema(properties=None, required=None):
+    return {"type": "object", "properties": properties or {},
+            "required": required or [], "additionalProperties": False}
+
+
+SETTINGS = {
+    "position": {"type": "string", "description": "Two percentages from 0 to 100, e.g. 60% 42%"},
+    "fit": {"type": "string", "enum": ["cover", "contain"]},
+    "wallpaperBrightness": {"type": "number", "minimum": 0.25, "maximum": 2},
+    "wallpaperBlur": {"type": "number", "minimum": 0, "maximum": 24},
+    **{key: {"type": "number", "minimum": 0, "maximum": 1} for key in
+       ("mainAlpha", "sidebarAlpha", "floatingAlpha", "messageAlpha", "scrimAlpha", "activityAlpha")},
+    **{key: {"type": "number", "minimum": 0, "maximum": 24} for key in ("floatingBlur", "sidebarBlur")},
+    "refraction": {"type": "boolean"},
+}
+
 TOOLS = [
-    {
-        "name": "get_theme_status",
-        "description": "获取当前 Codex 玻璃主题与壁纸的配置及实际生效状态。",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
-    },
-    {
-        "name": "open_wallpaper_settings",
-        "description": "启动或重用仅监听本地回环地址的壁纸设置页，并返回用于修改壁纸的临时私有页面 URL。",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
-    },
-    {
-        "name": "set_wallpaper",
-        "description": "导入用户显式指定的本地图片并应用为当前壁纸，支持调整位置、填充方式、亮度、模糊度及透明度。",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "image_path": {"type": "string", "description": "要作为壁纸的本地图片绝对路径（支持 JPG、PNG、WebP）。"},
-                "position": {"type": "string", "description": "壁纸位置，例如 '60% 42%'。"},
-                "fit": {"type": "string", "enum": ["cover", "contain"], "description": "壁纸填充方式。"},
-                "brightness": {"type": "number", "minimum": 0.25, "maximum": 2.0, "description": "壁纸亮度（0.25 到 2.0）。"},
-                "blur": {"type": "number", "minimum": 0, "maximum": 24, "description": "壁纸模糊半径，单位像素（0 到 24）。"},
-                "main_alpha": {"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "浅色界面主背景透明度。"},
-                "sidebar_alpha": {"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "浅色界面侧栏透明度。"},
-                "floating_alpha": {"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "浅色界面浮动卡片透明度。"},
-            },
-            "required": ["image_path"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "update_theme_settings",
-        "description": "更新已应用壁纸的展示参数（位置、填充、亮度、模糊、透明度），保留当前壁纸图片不变。",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "position": {"type": "string", "description": "壁纸位置，例如 '50% 50%'。"},
-                "fit": {"type": "string", "enum": ["cover", "contain"], "description": "壁纸填充方式。"},
-                "brightness": {"type": "number", "minimum": 0.25, "maximum": 2.0, "description": "壁纸亮度（0.25 到 2.0）。"},
-                "blur": {"type": "number", "minimum": 0, "maximum": 24, "description": "壁纸模糊半径，单位像素（0 到 24）。"},
-                "main_alpha": {"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "浅色界面主背景透明度。"},
-                "sidebar_alpha": {"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "浅色界面侧栏透明度。"},
-                "floating_alpha": {"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "浅色界面浮动卡片透明度。"},
-            },
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "restore_wallpaper",
-        "description": "恢复首次自定义前捕获的默认壁纸与图片参数，保留透明度偏好。",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
-    },
-    {
-        "name": "reapply_theme",
-        "description": "通过主题运行器重新向当前 Codex 窗口应用配置；离线时报告需重新启动。",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
-    },
+    ("get_theme_status", "Read local theme settings and whether the saved configuration is applied.", schema(), True),
+    ("open_wallpaper_settings", "Start or reuse a private local wallpaper settings page. Open the returned URL in Codex.", schema(), False),
+    ("set_wallpaper", "Copy a local JPG/PNG/WebP image into the theme and apply it immediately when available. Preserve the original.",
+     schema({"path": {"type": "string", "description": "Absolute path to a local image, up to 20 MiB"}}, ["path"]), False),
+    ("update_theme_settings", "Save the requested wallpaper/glass options and refresh the current theme.",
+     schema({"settings": schema(SETTINGS)}, ["settings"]), False),
+    ("restore_wallpaper", "Restore the captured default wallpaper and image options, keeping glass preferences.", schema(), False),
+    ("reapply_theme", "Refresh the current wallpaper without restarting Codex.", schema(), False),
 ]
 
 
-def send(payload):
-    body = json.dumps(payload, ensure_ascii=False)
-    sys.stdout.write(f"Content-Length: {len(body.encode('utf-8'))}\r\n\r\n{body}")
+def call_tool(controller, name, args):
+    definitions = {entry[0]: entry[2] for entry in TOOLS}
+    if name not in definitions:
+        raise ValueError("Unknown theme tool")
+    if not isinstance(args, dict):
+        raise ValueError("Tool arguments must be an object")
+    expected = definitions[name]
+    if set(args) - set(expected["properties"]) or set(expected["required"]) - set(args):
+        raise ValueError("Invalid tool arguments")
+    if name == "get_theme_status":
+        return controller.status()
+    if name == "open_wallpaper_settings":
+        return {"url": controller.start_panel()}
+    if name == "set_wallpaper":
+        if not isinstance(args["path"], str) or not Path(args["path"]).is_absolute():
+            raise ValueError("Use an absolute local image path")
+        return controller.set_wallpaper(args["path"])
+    if name == "update_theme_settings":
+        return controller.update_settings(args["settings"])
+    if name == "restore_wallpaper":
+        return controller.reset_wallpaper()
+    return controller.apply()
+
+
+def respond(value):
+    sys.stdout.write(json.dumps(value, ensure_ascii=False, allow_nan=False) + "\n")
     sys.stdout.flush()
 
 
-def reply(request_id, result=None, error=None):
-    if error is not None:
-        send({"jsonrpc": "2.0", "id": request_id, "error": error})
-    else:
-        send({"jsonrpc": "2.0", "id": request_id, "result": result})
-
-
-def text_result(content, is_error=False):
-    return {"content": [{"type": "text", "text": content}], "isError": is_error}
-
-
-def handle_initialize(controller, request_id):
-    reply(request_id, result={
-        "protocolVersion": PROTOCOL_VERSION,
-        "capabilities": {"tools": {}},
-        "serverInfo": {"name": "codex-liquid-glass", "version": "1.0.1"},
-    })
-
-
-def handle_tools_list(request_id):
-    reply(request_id, result={"tools": TOOLS})
-
-
-def handle_tool_call(controller, request_id, params):
-    name = params.get("name")
-    args = params.get("arguments") or {}
-    try:
-        if name == "get_theme_status":
-            reply(request_id, result=text_result(json.dumps(controller.status(), ensure_ascii=False, indent=2)))
-        elif name == "open_wallpaper_settings":
-            url = controller.start_panel()
-            reply(request_id, result=text_result(f"已生成壁纸设置页面（仅限本机访问）：\n{url}"))
-        elif name == "set_wallpaper":
-            options = {k: v for k, v in args.items() if k != "image_path"}
-            result = controller.set_wallpaper(args["image_path"], options)
-            reply(request_id, result=text_result(json.dumps(result, ensure_ascii=False, indent=2)))
-        elif name == "update_theme_settings":
-            result = controller.update_settings(args)
-            reply(request_id, result=text_result(json.dumps(result, ensure_ascii=False, indent=2)))
-        elif name == "restore_wallpaper":
-            result = controller.restore_wallpaper()
-            reply(request_id, result=text_result(json.dumps(result, ensure_ascii=False, indent=2)))
-        elif name == "reapply_theme":
-            result = controller.reapply()
-            reply(request_id, result=text_result(json.dumps(result, ensure_ascii=False, indent=2)))
-        else:
-            reply(request_id, error={"code": -32601, "message": f"未知的工具名称：{name}"})
-    except ThemeError as error:
-        reply(request_id, result=text_result(f"操作失败：{error}", is_error=True))
-    except Exception as error:
-        reply(request_id, result=text_result(f"内部错误：{error}", is_error=True))
-
-
 def main():
-    theme_root = load_theme_root()
-    controller = Controller(theme_root)
-    buffer = ""
-    while True:
-        line = sys.stdin.readline()
-        if not line:
-            break
-        buffer += line
-        if "\r\n\r\n" not in buffer and "\n\n" not in buffer:
+    theme_root = Path(os.environ.get("CODEX_THEME_ROOT", str(Path.home() / "Library/Application Support/CodexTheme")))
+    for line in sys.stdin:
+        if len(line) > 2 * 1024 * 1024:
             continue
-        delimiter = "\r\n\r\n" if "\r\n\r\n" in buffer else "\n\n"
-        headers_part, body = buffer.split(delimiter, 1)
-        length = None
-        for header in headers_part.splitlines():
-            if header.lower().startswith("content-length:"):
-                length = int(header.split(":", 1)[1].strip())
-        if length is None:
-            buffer = body
-            continue
-        while len(body.encode("utf-8")) < length:
-            chunk = sys.stdin.read(length - len(body.encode("utf-8")))
-            if not chunk:
-                return
-            body += chunk
-        raw_payload = body.encode("utf-8")[:length].decode("utf-8")
-        buffer = body.encode("utf-8")[length:].decode("utf-8")
-        message = json.loads(raw_payload)
-        request_id = message.get("id")
-        method = message.get("method")
-        if method == "initialize":
-            handle_initialize(controller, request_id)
-        elif method == "notifications/initialized":
-            pass
-        elif method == "tools/list":
-            handle_tools_list(request_id)
-        elif method == "tools/call":
-            handle_tool_call(controller, request_id, message.get("params", {}))
-        elif request_id is not None:
-            reply(request_id, error={"code": -32601, "message": f"未支持的方法：{method}"})
+        request = None
+        try:
+            request = json.loads(line)
+            if not isinstance(request, dict) or "id" not in request:
+                continue
+            method = request.get("method")
+            params = request.get("params", {})
+            if method == "initialize":
+                result = {"protocolVersion": params.get("protocolVersion", "2024-11-05"),
+                          "capabilities": {"tools": {}},
+                          "serverInfo": {"name": "codex-liquid-glass", "version": "1.0.1"}}
+            elif method == "ping":
+                result = {}
+            elif method == "tools/list":
+                result = {"tools": [{"name": name, "description": desc, "inputSchema": shape,
+                    "annotations": {"readOnlyHint": read_only, "destructiveHint": False,
+                                    "idempotentHint": name != "set_wallpaper", "openWorldHint": False}}
+                    for name, desc, shape, read_only in TOOLS]}
+            elif method == "tools/call":
+                try:
+                    try:
+                        controller = Controller(theme_root)
+                    except ThemeError as error:
+                        if params.get("name") == "get_theme_status":
+                            value = {"installed": False, "applied": False, "message": str(error)}
+                            result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}]}
+                            respond({"jsonrpc": "2.0", "id": request["id"], "result": result})
+                            continue
+                        raise
+                    value = call_tool(controller, params.get("name"), params.get("arguments", {}))
+                    result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False, allow_nan=False)}]}
+                except Exception as error:
+                    result = {"isError": True, "content": [{"type": "text", "text": str(error)}]}
+            else:
+                respond({"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32601, "message": "Method not found"}})
+                continue
+            respond({"jsonrpc": "2.0", "id": request["id"], "result": result})
+        except Exception as error:
+            respond({"jsonrpc": "2.0", "id": request.get("id") if isinstance(request, dict) else None,
+                     "error": {"code": -32600, "message": str(error)}})
 
 
 if __name__ == "__main__":

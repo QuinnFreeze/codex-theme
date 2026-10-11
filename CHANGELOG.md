@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-12
+
+### MCP compatibility and CI regression fix
+
+- Restore the working newline JSON-RPC transport and existing tool parameters after an incompatible upload changed them without updating the controller.
+- Restore controller regression checks for image decoding, applied configuration, private panel access, and reversible wallpaper changes.
+- Run every Python regression test in CI, including the previously omitted controller suite. Add a real stdio round trip for wallpaper import, nested settings updates, restore, and reapply.
+
 ## 1.0.1 (2026-10-11)
 
 ### Security Fixes & Hardening

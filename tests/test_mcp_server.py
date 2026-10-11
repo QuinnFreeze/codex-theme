@@ -66,6 +66,45 @@ class McpProtocolTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertEqual(json.loads(lines[0])["error"]["code"], -32601)
 
+    def test_wallpaper_settings_restore_and_reapply_through_real_stdio(self):
+        with tempfile.TemporaryDirectory() as home:
+            theme = Path(home)
+            shutil.copy2(ROOT / "theme/settings.json", theme / "settings.json")
+            (theme / "wallpaper").mkdir()
+            image = ROOT / "theme/wallpaper/current.jpg"
+            shutil.copy2(image, theme / "wallpaper/current.jpg")
+            selected = theme / "selected.jpg"
+            shutil.copy2(image, selected)
+            replies = requests(theme, [
+                ("tools/call", {"name": "get_theme_status", "arguments": {}}),
+                ("tools/list", {}),
+                ("tools/call", {"name": "set_wallpaper", "arguments": {"path": str(selected)}}),
+                ("tools/call", {"name": "update_theme_settings", "arguments": {"settings": {
+                    "position": "25% 70%", "wallpaperBrightness": 0.75, "mainAlpha": 0.25,
+                }}}),
+                ("tools/call", {"name": "restore_wallpaper", "arguments": {}}),
+                ("tools/call", {"name": "reapply_theme", "arguments": {}}),
+            ])
+            self.assertEqual(len(replies), 6)
+            self.assertTrue(all("result" in reply and not reply["result"].get("isError")
+                                for reply in replies))
+            initial = json.loads(replies[0]["result"]["content"][0]["text"])["config"]
+            tools = {tool["name"]: tool for tool in replies[1]["result"]["tools"]}
+            self.assertEqual(tools["set_wallpaper"]["inputSchema"]["required"], ["path"])
+            self.assertEqual(tools["update_theme_settings"]["inputSchema"]["required"], ["settings"])
+            imported, updated, restored, reapplied = [
+                json.loads(reply["result"]["content"][0]["text"]) for reply in replies[2:]
+            ]
+            self.assertTrue(imported["saved"])
+            self.assertEqual(updated["config"]["position"], "25% 70%")
+            self.assertEqual(updated["config"]["wallpaperBrightness"], 0.75)
+            self.assertEqual(restored["config"]["position"], initial["position"])
+            self.assertEqual(restored["config"]["wallpaperBrightness"], initial["wallpaperBrightness"])
+            self.assertEqual(restored["config"]["mainAlpha"], 0.25)
+            self.assertFalse(reapplied["applied"])
+            self.assertEqual(selected.read_bytes(), image.read_bytes())
+            self.assertEqual(json.loads((theme / "settings.json").read_text()), restored["config"])
+
 
 if __name__ == "__main__":
     unittest.main()
