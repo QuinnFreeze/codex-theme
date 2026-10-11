@@ -1,6 +1,6 @@
 # Codex Liquid Glass · macOS Theme
 
-Adds black-and-white wallpaper, a glass composer, floating panels, and a continuous background to the macOS Codex desktop app. The theme follows the app's light or dark appearance, preserves native thin scrollbars, button state colors, and fonts, and respects Reduce Transparency and Reduce Motion.
+Adds black-and-white wallpaper, a glass composer, floating panels, and a continuous background to the macOS Codex desktop app. The theme follows the app's light or dark appearance, preserves native thin scrollbars, font metrics and disabled states, and respects Reduce Transparency and Reduce Motion. Secondary text uses opaque ink; small status labels keep their meaning with stronger contrast.
 
 Styles load through external runtime scripts and a local debugging interface. Installation does not modify the official app bundle or its signed files.
 
@@ -35,6 +35,8 @@ An app already running without a debugging port cannot receive additional launch
 
 ## Configure and Reapply
 
+The optional Codex Liquid Glass plugin adds local wallpaper tools and a visual settings page; see the README supplied with the plugin. Plugin upgrades preserve this directory's settings and images. The runtime now supports refreshing the wallpaper and future-window styles without quitting the app.
+
 After installation, edit `settings.json` and `styles/` in the installed directory. The repository copies are for source maintenance; editing them does not automatically overwrite the installed files.
 
 ```zsh
@@ -46,7 +48,10 @@ open -e "$HOME/Library/Application Support/CodexTheme/settings.json"
 |---|---|---|
 | `wallpaper` | `wallpaper/current.jpg` | JPG, PNG, or WebP path relative to the theme directory |
 | `position` | `60% 42%` | Wallpaper position with cover sizing; two percentages |
-| `mainAlpha` | `0.08` | Light-mode main background opacity |
+| `fit` | `cover` | `cover` fills the window; `contain` shows the entire image |
+| `wallpaperBrightness` | `1` | Wallpaper-only brightness, from `0.25–2` |
+| `wallpaperBlur` | `0` | Wallpaper-only blur, from `0–24` px; text stays sharp |
+| `mainAlpha` | `0.08` | Light-mode chat background opacity; pages without a composer use a separate reading surface |
 | `sidebarAlpha` | `0.72` | Light-mode sidebar background opacity |
 | `scrimAlpha` | `0.22` | Reading scrim that fades from left to right |
 | `messageAlpha` | `0.90` | Message background opacity |
@@ -57,6 +62,8 @@ open -e "$HOME/Library/Application Support/CodexTheme/settings.json"
 | `refraction` | `false` | Edge refraction toggle for small menus |
 
 Opacity values range from `0–1`, and blur radii from `0–24`. Dark mode has separate opacity overrides; accessibility settings take precedence. Missing `scrimAlpha` or `activityAlpha` values use their defaults.
+
+Catalogs, schedules and settings use a reading surface (`--wynn-reading-alpha`: `0.90` in light mode, `0.94` in dark mode). Reduce Transparency raises it to `1`. This is a CSS default, independent of the chat wallpaper opacity setting.
 
 To change the wallpaper, place the image in the installed `wallpaper/` directory, update the `wallpaper` field, and reapply. `original.jpg` preserves the original image; `current.jpg` is currently used.
 
@@ -76,7 +83,7 @@ Integration backups from installation and removal are stored in `$HOME/Library/A
 
 The previous verification environment was **Codex 26.930.61225 on Intel macOS**. Recorded checks cover light, dark, and system appearance switching; window reloads; new windows; cold starts in an isolated instance; service recovery; sidebar scrolling; the composer; and tooltip text. Some viewport and accessibility checks used Chromium emulation.
 
-This GitHub upload preparation checked only documentation and existing files. It did not include reinstallation, removal, or a full quit-and-relaunch test of the main app. Apple Silicon, later Codex versions, and system restarts have not been verified. Changes to the app's native DOM may require CSS adjustments.
+The 2026-10-11 update includes actual interface readability checks, 25 Python regression tests, 15 Node runtime/build tests, and release packaging checks. See the repository changelog for the visual coverage limits. This upload preparation did not repeat reinstallation, removal, or a full quit-and-relaunch test of the main app. Apple Silicon, later Codex versions, and system restarts have not been verified. Changes to the app's native DOM may require CSS adjustments.
 
 The theme uses the local debugging interface at `127.0.0.1:9236` and verifies that the listening process belongs to the official app. Use it only in a trusted local environment; do not forward or expose this port.
 

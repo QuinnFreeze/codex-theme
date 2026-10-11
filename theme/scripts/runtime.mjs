@@ -1,4 +1,4 @@
-import fs from 'node:fs';import path from 'node:path';import net from 'node:net';import {fileURLToPath} from 'node:url';import {execFileSync} from 'node:child_process';import {root,expression,removeExpression} from './build.mjs';
+import fs from 'node:fs';import path from 'node:path';import net from 'node:net';import {createHash} from 'node:crypto';import {fileURLToPath} from 'node:url';import {execFileSync} from 'node:child_process';import {root,expression,removeExpression} from './build.mjs';
 export const state=path.join(root,'state');fs.mkdirSync(state,{recursive:true,mode:0o700});
 export function verifyOwner(port){const out=execFileSync('/usr/sbin/lsof',['-nP','-iTCP:'+port,'-sTCP:LISTEN','-t'],{encoding:'utf8'}).trim();const ids=[...new Set(out.split(/\s+/))];if(!ids.length)throw Error('No listener');for(const pid of ids){const meta=path.join(state,'application.json');const app=fs.existsSync(meta)?JSON.parse(fs.readFileSync(meta,'utf8')).applicationPath:'/Applications/ChatGPT.app';const plist=path.join(app,'Contents/Info.plist');const bundle=execFileSync('/usr/bin/plutil',['-extract','CFBundleIdentifier','raw',plist],{encoding:'utf8'}).trim();const name=execFileSync('/usr/bin/plutil',['-extract','CFBundleExecutable','raw',plist],{encoding:'utf8'}).trim();if(bundle!=='com.openai.codex'||path.basename(name)!==name)throw Error('Invalid Codex bundle');const expected=fs.realpathSync(path.join(app,'Contents/MacOS',name));const cmd=execFileSync('/bin/ps',['-p',pid,'-o','comm='],{encoding:'utf8'}).trim();if(fs.realpathSync(cmd)!==expected)throw Error('Debugger owner is not installed ChatGPT: '+cmd)}return ids}
 export class Connection {
@@ -43,6 +43,33 @@ export function isThemeTarget(t){return t?.type==='page'&&isThemeDocumentURL(t.u
 export function shouldDiscoverTarget(t,tracked,retiring=false){return isThemeTarget(t)?!tracked||retiring:tracked&&!retiring}
 export function documentExpression(payload){return `(()=>{if(!(${isThemeDocumentURL.toString()})(location.href))return {installed:false};return (${payload})})()`}
 export function documentSource(payload){return documentExpression(`(()=>{const apply=()=>(${payload});if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',apply,{once:true})}else{return apply()}})()`)}
+export function configDigest(){return createHash('sha256').update(fs.readFileSync(path.join(root,'settings.json'))).digest('hex')}
+// Replace both the current style and the future-document hook without restarting
+// the application or its runtime connection. Registry entries track partial cleanup.
+export async function reloadSessions({sessions,registry,persist},payload,digest){
+ const errors=[];
+ await Promise.all([...sessions].map(async([id,session])=>{
+  if(session.retiring||!session.applied||session.c.ws.readyState!==WebSocket.OPEN)return;
+  let added;
+  try{
+   const previous=[...new Set([...(registry[id]||[]),session.script].filter(Boolean))];
+   added=(await session.c.call('Page.addScriptToEvaluateOnNewDocument',{source:documentSource(payload)})).identifier;
+   if(sessions.get(id)!==session||session.retiring){await session.c.call('Page.removeScriptToEvaluateOnNewDocument',{identifier:added});return}
+   registry[id]=[...previous,added];persist();
+   session.script=added;
+   const result=await session.c.eval(documentExpression(payload));
+   if(result?.installed!==true){session.applied=false;throw Error('Codex document changed during wallpaper reload')}
+   if(sessions.get(id)!==session||session.retiring)return;
+   session.configDigest=digest;
+   for(const identifier of previous){
+    await session.c.call('Page.removeScriptToEvaluateOnNewDocument',{identifier});
+    if(registry[id]){registry[id]=registry[id].filter(v=>v!==identifier);persist()}
+   }
+  }catch(e){errors.push({target:id,error:e.message})}
+ }));
+ const loaded=[...sessions.values()].filter(s=>s.applied&&!s.retiring&&s.configDigest===digest&&s.c.ws.readyState===WebSocket.OPEN);
+ return{reloaded:true,applied:loaded.some(s=>s.main)&&errors.length===0,sessions:loaded.length,shellSessions:loaded.filter(s=>s.main).length,configSha256:digest,errors};
+}
 export const SHELL_WAIT_MS=90000,SHELL_EVAL_TIMEOUT_MS=95000;
 export function waitForShell(timeoutMs=SHELL_WAIT_MS){
  return new Promise(resolve=>{
@@ -122,13 +149,13 @@ if(command==='daemon'){
    for(const identifier of previous){if(stopping||sessions.get(t.id)!==session){c.close();return}await c.call('Page.removeScriptToEvaluateOnNewDocument',{identifier})}
    if(registry[t.id]){registry[t.id]=registry[t.id].filter(identifier=>!previous.includes(identifier));if(!registry[t.id].length)delete registry[t.id];persistRegistry()}
    if(stopping||sessions.get(t.id)!==session){c.close();return}
-   const payload=expression();
+   const payload=expression(),digest=configDigest();
    const r=await c.call('Page.addScriptToEvaluateOnNewDocument',{source:documentSource(payload)});
    if(stopping||sessions.get(t.id)!==session||session.retiring){await c.call('Page.removeScriptToEvaluateOnNewDocument',{identifier:r.identifier}).catch(()=>{});c.close();return}
    session.script=r.identifier;
    registry[t.id]=[r.identifier];persistRegistry();
    const result=await c.eval(documentExpression(payload));
-   if(sessions.get(t.id)===session&&!session.retiring)session.applied=result?.installed===true;
+   if(sessions.get(t.id)===session&&!session.retiring){session.applied=result?.installed===true;session.configDigest=digest}
   }catch(e){
    if(session.script){
     try{await c.call('Page.removeScriptToEvaluateOnNewDocument',{identifier:session.script});registry[t.id]=(registry[t.id]||[]).filter(id=>id!==session.script);if(!registry[t.id].length)delete registry[t.id];persistRegistry()}
@@ -143,7 +170,19 @@ if(command==='daemon'){
  browser.listeners.add(m=>{if(stopping)return;if(m.method==='Target.targetDestroyed'){forget(m.params.targetId);return}if(m.method==='Target.targetCreated'||m.method==='Target.targetInfoChanged'){const target=m.params.targetInfo;if(shouldDiscoverTarget(target,sessions.has(target.targetId),!!sessions.get(target.targetId)?.retiring))discover().catch(e=>console.error(e.message))}});
  const remove=async()=>{stopping=true;for(const session of sessions.values()){if(session.retiring){await session.retiring;continue}const{c,script}=session;try{if(script)await c.call('Page.removeScriptToEvaluateOnNewDocument',{identifier:script});await c.eval(removeExpression)}catch{}c.close()}sessions.clear();try{if(!browserDead)for(const t of await pages(port)){if(!registry[t.id])continue;const c=new Connection(t.webSocketDebuggerUrl);try{for(const id of registry[t.id])await c.call('Page.removeScriptToEvaluateOnNewDocument',{identifier:id}).catch(()=>{});await c.eval(removeExpression)}finally{c.close()}}}catch(e){if(!browserDead)console.error(e.message)}fs.rmSync(path.join(state,'registrations.json'),{force:true});browser.close()};
  try{fs.unlinkSync(socketPath)}catch(e){if(e.code!=='ENOENT')throw e}
- const server=net.createServer(s=>{s.on('error',()=>{});s.once('data',async b=>{try{const cmd=b.toString().trim();if(cmd==='remove'){await remove();s.end(JSON.stringify({removed:true}));server.close();fs.rmSync(socketPath,{force:true});fs.rmSync(path.join(state,'daemon.json'),{force:true})}else if(cmd==='status')s.end(JSON.stringify({port,sessions:[...sessions.values()].filter(v=>v.applied&&v.c.ws.readyState===WebSocket.OPEN).length,shellSessions:[...sessions.values()].filter(v=>v.applied&&v.main&&v.c.ws.readyState===WebSocket.OPEN).length,browserDead}));else s.end(JSON.stringify({error:'Unknown command'}))}catch(e){if(!s.writableEnded)s.end(JSON.stringify({error:e.message}))}})});
+ let reloadPending=Promise.resolve();
+ const server=net.createServer(s=>{s.on('error',()=>{});s.once('data',async b=>{try{
+  const cmd=b.toString().trim();
+  if(cmd==='remove'){await reloadPending;await remove();s.end(JSON.stringify({removed:true}));server.close();fs.rmSync(socketPath,{force:true});fs.rmSync(path.join(state,'daemon.json'),{force:true})}
+  else if(cmd==='reload'){
+   const reload=reloadPending.then(async()=>{if(stopping||browserDead)throw Error('Codex is closing');const payload=expression();return reloadSessions({sessions,registry,persist:persistRegistry},payload,configDigest())});
+   reloadPending=reload.catch(()=>{});s.end(JSON.stringify(await reload));
+  }else if(cmd==='status'){
+   const loaded=[...sessions.values()].filter(v=>v.applied&&!v.retiring&&v.c.ws.readyState===WebSocket.OPEN),main=loaded.filter(v=>v.main);
+   const digests=[...new Set(main.map(v=>v.configDigest))];
+   s.end(JSON.stringify({port,sessions:loaded.length,shellSessions:main.length,browserDead,appliedConfigSha256:digests.length===1?digests[0]:null}));
+  }else s.end(JSON.stringify({error:'Unknown command'}));
+ }catch(e){if(!s.writableEnded)s.end(JSON.stringify({error:e.message}))}})});
  server.listen(socketPath,()=>fs.chmodSync(socketPath,0o600));fs.writeFileSync(path.join(state,'daemon.json'),JSON.stringify({pid:process.pid,port,started:new Date().toISOString()}));
  const quit=async()=>{if(stopping)return;stopping=true;await remove();server.close();fs.rmSync(socketPath,{force:true});fs.rmSync(path.join(state,'daemon.json'),{force:true});if(browserDead){fs.writeFileSync(path.join(state,'autostart-status.json'),JSON.stringify({active:false,needsRestart:false,message:'应用已退出；下次从主题入口启动时自动加载。'}))}process.exit(0)};process.on('SIGTERM',quit);process.on('SIGINT',quit);
  browser.ws.addEventListener('close',()=>{browserDead=true;if(!stopping)quit()});

@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Liquid Glass · 壁纸设置</title>
+  <style>
+    :root { color-scheme: light; --paper:#f6f6f5; --panel:#fff; --ink:#232323; --muted:#626262; --edge:#e4e4e1; --subtle:#f1f1ef; --button:#252525; --button-ink:#fff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+    button,input,select { font:inherit; }
+    button,select { cursor:pointer; }
+    button { color:inherit; }
+    button:disabled { opacity:.45; cursor:default; }
+    button:focus-visible,input:focus-visible,select:focus-visible,.choose:focus-within { outline:2px solid var(--ink); outline-offset:4px; }
+    main { max-width:1336px; margin:0 auto; padding:42px 36px 28px; }
+    .page-header { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:28px; }
+    .brand { display:flex; align-items:center; gap:14px; }
+    .mark { width:44px; height:44px; display:grid; place-items:center; border:1px solid var(--edge); border-radius:15px; background:var(--panel); box-shadow:0 4px 16px #00000004; }
+    .mark svg { width:25px; height:25px; }
+    h1 { font-size:23px; font-weight:600; letter-spacing:-.6px; margin:0; }
+    .subtitle { color:var(--muted); font-size:12px; margin:3px 0 0; }
+    .local-tag { font-size:11px; display:flex; align-items:center; gap:7px; color:var(--muted); padding:7px 11px; border:1px solid var(--edge); border-radius:30px; white-space:nowrap; }
+    .local-tag::before { content:""; width:5px; height:5px; background:currentColor; border-radius:50%; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:28px; align-items:start; }
+    .workspace > section { min-width:0; }
+    .preview { width:100%; min-width:0; }
+    .preview-heading { display:flex; align-items:center; justify-content:space-between; margin:1px 0 13px; }
+    .eyebrow { font-size:11px; font-weight:600; letter-spacing:1.5px; color:var(--muted); }
+    .mode-switch { display:flex; padding:3px; border:1px solid var(--edge); border-radius:9px; gap:2px; }
+    .mode-switch button { border:0; border-radius:6px; padding:4px 9px; background:transparent; color:var(--muted); font-size:11px; }
+    .mode-switch button[aria-pressed="true"] { background:var(--panel); color:var(--ink); box-shadow:0 1px 3px #0000000c; }
+    .preview { --rgb:255 255 255; --preview-ink:#272727; --preview-muted:#3e454e; --main-alpha:.08; --sidebar-alpha:.72; --floating-alpha:.86; --scrim-alpha:.22; --brightness:1; --blur:0px; --position:60% 42%; --fit:cover; position:relative; overflow:hidden; isolation:isolate; aspect-ratio:1.4; min-height:430px; border:1px solid #00000016; border-radius:18px; box-shadow:0 18px 42px #0000000a; background:#d7d8d5; color:var(--preview-ink); }
+    .preview[data-mode="dark"] { --rgb:28 30 33; --preview-ink:#f3f3f3; --preview-muted:#c6cbd3; border-color:#ffffff20; }
+    .wallpaper { position:absolute; z-index:-3; inset:0; background-color:#979995; background-size:var(--fit); background-position:var(--position); background-repeat:no-repeat; filter:brightness(var(--brightness)) blur(var(--blur)); }
+    .preview-scrim { position:absolute; z-index:-2; inset:0; background:rgb(0 0 0 / var(--scrim-alpha)); }
+    .preview-main-surface { position:absolute; z-index:-1; inset:0 0 0 174px; background:rgb(var(--rgb) / var(--main-alpha)); }
+    .preview-titlebar { display:flex; justify-content:space-between; align-items:center; height:43px; padding:0 16px; background:rgb(var(--rgb) / .9); border-bottom:1px solid rgb(var(--rgb) / .12); font-size:10px; }
+    .window-dots { display:flex; gap:5px; }
+    .window-dots i { width:7px; height:7px; border-radius:50%; background:currentColor; opacity:.32; }
+    .preview-titlebar span { opacity:1; }
+    .preview-app { display:flex; height:calc(100% - 43px); position:absolute; inset:43px 0 0; }
+    .preview-sidebar { width:174px; flex:0 0 174px; background:rgb(var(--rgb) / var(--sidebar-alpha)); border-right:1px solid rgb(var(--rgb) / .18); padding:17px 12px; backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); font-size:10px; }
+    .sidebar-logo { font-size:12px; font-weight:600; letter-spacing:-.3px; margin:0 8px 19px; }
+    .side-action { display:flex; align-items:center; gap:8px; padding:6px 8px; }
+    .side-action svg { width:12px; height:12px; }
+    .side-group { margin:25px 8px 8px; color:var(--preview-muted); font-size:9px; }
+    .side-item { padding:7px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .side-item.selected { background:rgb(127 127 127 / .1); border-radius:6px; }
+    .preview-content { min-width:0; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:30px 26px; position:relative; }
+    .preview-content h2 { margin:0 0 7px; font-size:21px; font-weight:500; letter-spacing:-.6px; background:rgb(var(--rgb) / .92); box-shadow:0 0 0 4px rgb(var(--rgb) / .92); border-radius:5px; }
+    .preview-content p { margin:0; font-size:10px; color:var(--preview-muted); background:rgb(var(--rgb) / .92); box-shadow:0 0 0 2px rgb(var(--rgb) / .92); border-radius:3px; }
+    .preview-composer { width:100%; max-width:410px; min-height:105px; margin-top:25px; padding:14px; background:rgb(var(--rgb) / var(--floating-alpha)); backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px); border:1px solid rgb(127 127 127 / .18); box-shadow:inset 0 1px 0 rgb(255 255 255 / .2),0 10px 24px #00000010; border-radius:16px; font-size:10px; }
+    .composer-placeholder { color:var(--preview-muted); }
+    .composer-tools { margin-top:26px; display:flex; align-items:center; justify-content:space-between; font-size:11px; }
+    .composer-left { display:flex; gap:12px; align-items:center; }
+    .send-icon { display:grid; place-items:center; width:23px; height:23px; border-radius:50%; background:var(--preview-ink); color:rgb(var(--rgb)); font-size:15px; }
+    .preview-footer { position:absolute; bottom:13px; font-size:10px; color:var(--preview-muted); background:rgb(var(--rgb) / .92); box-shadow:0 0 0 2px rgb(var(--rgb) / .92); border-radius:3px; }
+    .preview-note { display:flex; justify-content:space-between; gap:15px; margin:12px 2px 22px; color:var(--muted); font-size:11px; }
+    .preview-note span:last-child { white-space:nowrap; }
+    .upload-card { background:var(--panel); border:1px solid var(--edge); border-radius:14px; padding:18px; display:flex; align-items:center; justify-content:space-between; gap:15px; }
+    .file-info { min-width:0; }
+    .file-info strong { display:block; font-size:12px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:410px; }
+    .file-info p { margin:5px 0 0; font-size:11px; color:var(--muted); }
+    .choose { flex:none; position:relative; cursor:pointer; border:1px solid var(--edge); border-radius:8px; padding:8px 12px; font-size:12px; background:var(--panel); }
+    .choose:hover { background:var(--subtle); }
+    .choose input { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+    .settings { background:var(--panel); border:1px solid var(--edge); border-radius:15px; padding:23px; }
+    .settings h2 { margin:0 0 4px; font-size:15px; font-weight:600; }
+    .settings-intro { color:var(--muted); font-size:11px; margin:0 0 23px; }
+    fieldset { border:0; padding:0; margin:0; min-width:0; }
+    fieldset + fieldset { margin-top:23px; padding-top:21px; border-top:1px solid var(--edge); }
+    legend { padding:0; font-size:11px; font-weight:600; margin:0 0 16px; }
+    .control { margin-bottom:15px; }
+    .control:last-child { margin-bottom:0; }
+    .control-label { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:10px; font-size:12px; }
+    output { font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; min-width:38px; text-align:right; }
+    input[type="range"] { accent-color:var(--ink); width:100%; height:14px; margin:0; cursor:pointer; display:block; }
+    .fit-row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:17px; font-size:12px; }
+    select { background:var(--subtle); color:var(--ink); border:1px solid var(--edge); padding:6px 10px; border-radius:7px; font-size:11px; }
+    .settings-note { margin:15px 0 0; color:var(--muted); font-size:10px; line-height:1.7; }
+    .actions { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:23px; }
+    .reset { background:transparent; border:0; padding:8px 0; color:var(--muted); font-size:11px; text-decoration:underline; text-underline-offset:3px; }
+    .apply { border:0; border-radius:9px; padding:10px 18px; background:var(--button); color:var(--button-ink); font-size:12px; font-weight:500; }
+    .apply:hover:not(:disabled) { opacity:.84; }
+    .status { min-height:34px; margin:14px 0 0; font-size:11px; line-height:1.6; color:var(--muted); }
+    .status[data-kind="error"] { color:#a43535; }
+    .page-footer { margin-top:27px; color:var(--muted); font-size:10px; text-align:center; }
+    @media (prefers-color-scheme:dark) { :root { color-scheme:dark; --paper:#171819; --panel:#202122; --ink:#ececec; --muted:#a0a0a0; --edge:#363738; --subtle:#292a2b; --button:#ededed; --button-ink:#1b1b1b; } .preview { box-shadow:0 18px 42px #00000030; } .status[data-kind="error"] { color:#ec9696; } }
+    @media (max-width:1100px) { main { padding:30px 24px 24px; } .workspace { gap:20px; grid-template-columns:minmax(0,1fr) 304px; } .settings { padding:20px; } .preview { min-height:440px; } .preview-main-surface { left:142px; } .preview-sidebar { width:142px; flex-basis:142px; } .preview-content { padding:26px 18px; } .preview-content h2 { font-size:18px; } }
+    @media (max-width:900px) { main { max-width:760px; } .workspace { grid-template-columns:minmax(0,1fr); } .preview { min-height:380px; aspect-ratio:1.55; } .preview-main-surface { left:174px; } .preview-sidebar { width:174px; flex-basis:174px; } .preview-content { padding:30px 26px; } .preview-content h2 { font-size:22px; } .settings { padding:24px; } .settings form { display:grid; grid-template-columns:1fr 1fr; gap:0 30px; } fieldset + fieldset { margin:0; padding:0; border:0; } .actions,.status { grid-column:1 / -1; } .settings-intro { margin-bottom:23px; } }
+    @media (max-width:640px) { main { padding:24px 16px 20px; } .page-header { align-items:flex-start; margin-bottom:22px; } h1 { font-size:20px; } .mark { width:39px; height:39px; border-radius:13px; } .brand { gap:11px; } .local-tag { padding:5px 8px; font-size:9px; margin-top:3px; } .subtitle { font-size:11px; } .preview { min-height:315px; aspect-ratio:1.24; border-radius:13px; } .preview-main-surface { left:112px; } .preview-sidebar { width:112px; flex-basis:112px; padding:13px 7px; font-size:8px; } .sidebar-logo { font-size:10px; margin:0 6px 15px; } .side-action { gap:5px; padding:6px; } .side-action svg { width:10px; height:10px; } .side-group { font-size:8px; margin:19px 6px 5px; } .side-item { padding:6px; } .preview-titlebar { height:34px; padding:0 12px; font-size:8px; } .preview-app { top:34px; height:calc(100% - 34px); } .preview-content { padding:25px 13px; } .preview-content h2 { font-size:17px; } .preview-content p { font-size:8px; } .preview-composer { min-height:90px; padding:11px; border-radius:12px; margin-top:20px; font-size:8px; } .composer-tools { margin-top:23px; font-size:9px; } .composer-left { gap:7px; } .send-icon { width:20px; height:20px; font-size:13px; } .preview-footer { font-size:8px; bottom:9px; } .preview-note { font-size:10px; margin-bottom:17px; } .preview-note span:last-child { display:none; } .upload-card { padding:14px; } .file-info strong { max-width:185px; font-size:11px; } .file-info p { font-size:9px; } .choose { padding:7px 10px; font-size:11px; } .settings { padding:21px; } .settings form { display:block; } fieldset + fieldset { margin-top:23px; padding-top:21px; border-top:1px solid var(--edge); } .page-footer { margin-top:20px; font-size:9px; } }
+    @media (prefers-reduced-motion:no-preference) { .preview-sidebar,.preview-composer,.preview-main-surface,.preview-scrim { transition:background-color 100ms ease; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"><svg viewBox="0 0 28 28" fill="none"><rect x="4" y="5" width="19" height="18" rx="6" stroke="currentColor" stroke-width="1.2"/><path d="M8 19L17 8M12 21L21 10" stroke="currentColor" stroke-width="1.2"/><path d="M8 8h2M19 20h1" stroke="currentColor" stroke-linecap="round"/></svg></div>
+        <div><h1>Liquid Glass</h1><p class="subtitle">让你的 Codex，多一点自己的样子。</p></div>
+      </div>
+      <div class="local-tag">仅在本机保存</div>
+    </header>
+    <div class="workspace">
+      <section aria-label="壁纸预览">
+        <div class="preview-heading"><span class="eyebrow">实时预览</span><div class="mode-switch" role="group" aria-label="预览外观"><button type="button" data-preview-mode="light" aria-pressed="true">浅色</button><button type="button" data-preview-mode="dark" aria-pressed="false">深色</button></div></div>
+        <div class="preview" id="preview" data-mode="light" aria-label="Codex 外观示意图">
+          <div class="wallpaper" id="wallpaper"></div><div class="preview-scrim"></div><div class="preview-main-surface"></div>
+          <div class="preview-titlebar"><div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div><span>Codex</span><span aria-hidden="true">◧</span></div>
+          <div class="preview-app" aria-hidden="true">
+            <div class="preview-sidebar"><div class="sidebar-logo">Codex</div><div class="side-action"><svg viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.3"/></svg>新建任务</div><div class="side-action"><svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4" stroke="currentColor"/><path d="m10 10 3 3" stroke="currentColor"/></svg>搜索</div><div class="side-group">任务</div><div class="side-item selected">我的工作空间</div><div class="side-item">一个新的想法</div><div class="side-item">让灵感成为现实</div></div>
+            <div class="preview-content"><h2>今天，我们做些什么？</h2><p>从一个想法开始。</p><div class="preview-composer"><div class="composer-placeholder">描述你的任务，或从文件开始</div><div class="composer-tools"><div class="composer-left"><span>＋</span><span>⌘</span><span>Codex⌄</span></div><span class="send-icon">↑</span></div></div><div class="preview-footer">每一个想法，都有可能。</div></div>
+          </div>
+        </div>
+        <p class="preview-note"><span>预览仅作示意，实际布局与明暗跟随 Codex。</span><span>原图保留 · 可随时更换</span></p>
+        <div class="upload-card">
+          <div class="file-info"><strong id="filename">正在读取当前壁纸…</strong><p id="filemeta">JPG、PNG、WebP · 最大 20 MB</p></div>
+          <label class="choose">更换壁纸<input id="file" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" aria-label="选择新的壁纸" disabled></label>
+        </div>
+      </section>
+      <section class="settings" aria-labelledby="settings-title">
+        <h2 id="settings-title">壁纸与玻璃</h2><p class="settings-intro">先调整到喜欢的样子，再应用到 Codex。</p>
+        <form id="form">
+          <fieldset id="image-controls" disabled>
+            <legend>图像</legend>
+            <div class="fit-row"><label for="fit">显示方式</label><select id="fit" name="fit"><option value="cover">填满窗口</option><option value="contain">显示完整图片</option></select></div>
+            <div class="control"><div class="control-label"><label for="position-x">水平位置</label><output for="position-x" id="position-x-value">60%</output></div><input id="position-x" type="range" min="0" max="100" step="1" value="60"></div>
+            <div class="control"><div class="control-label"><label for="position-y">垂直位置</label><output for="position-y" id="position-y-value">42%</output></div><input id="position-y" type="range" min="0" max="100" step="1" value="42"></div>
+            <div class="control"><div class="control-label"><label for="wallpaperBrightness">壁纸亮度</label><output for="wallpaperBrightness" id="wallpaperBrightness-value">100%</output></div><input id="wallpaperBrightness" type="range" min="0.25" max="2" step="0.01" value="1"></div>
+            <div class="control"><div class="control-label"><label for="wallpaperBlur">壁纸模糊</label><output for="wallpaperBlur" id="wallpaperBlur-value">0 px</output></div><input id="wallpaperBlur" type="range" min="0" max="24" step="1" value="0"></div>
+          </fieldset>
+          <fieldset id="glass-controls" disabled>
+            <legend>玻璃不透明度 · 浅色外观</legend>
+            <div class="control"><div class="control-label"><label for="mainAlpha">主窗口</label><output for="mainAlpha" id="mainAlpha-value">8%</output></div><input id="mainAlpha" type="range" min="0" max="1" step="0.01" value="0.08"></div>
+            <div class="control"><div class="control-label"><label for="sidebarAlpha">侧边栏</label><output for="sidebarAlpha" id="sidebarAlpha-value">72%</output></div><input id="sidebarAlpha" type="range" min="0" max="1" step="0.01" value="0.72"></div>
+            <div class="control"><div class="control-label"><label for="floatingAlpha">输入框与浮层</label><output for="floatingAlpha" id="floatingAlpha-value">86%</output></div><input id="floatingAlpha" type="range" min="0" max="1" step="0.01" value="0.86"></div>
+            <div class="control"><div class="control-label"><label for="scrimAlpha">壁纸遮罩</label><output for="scrimAlpha" id="scrimAlpha-value">22%</output></div><input id="scrimAlpha" type="range" min="0" max="1" step="0.01" value="0.22"></div>
+            <p class="settings-note">不透明度越低，壁纸越清晰。深色外观保留原主题的阅读对比度。</p>
+          </fieldset>
+          <div class="actions"><button class="reset" id="reset" type="button" disabled>恢复默认</button><button class="apply" id="apply" type="submit" disabled>应用更改</button></div>
+          <p class="status" id="status" role="status" aria-live="polite" aria-atomic="true">正在连接本机主题服务…</p>
+        </form>
+      </section>
+    </div>
+    <footer class="page-footer">Codex Liquid Glass · 壁纸保存在本机，设置随时可调整。</footer>
+  </main>
+  <script>
+    (() => {
+      'use strict';
+      const token = new URLSearchParams(location.search).get('token');
+      const $ = (id) => document.getElementById(id);
+      const rangeIds = ['position-x', 'position-y', 'wallpaperBrightness', 'wallpaperBlur', 'mainAlpha', 'sidebarAlpha', 'floatingAlpha', 'scrimAlpha'];
+      const defaultSettings = { position: '60% 42%', fit: 'cover', wallpaperBrightness: 1, wallpaperBlur: 0, mainAlpha: .08, sidebarAlpha: .72, floatingAlpha: .86, scrimAlpha: .22 };
+      let savedSettings = { ...defaultSettings };
+      let selectedFile = null;
+      let previewURL = null;
+      let busy = false;
+      let ready = false;
+
+      const apiURL = (path) => {
+        const url = new URL(path, location.origin);
+        url.searchParams.set('token', token || '');
+        return url;
+      };
+      const setStatus = (message, error = false) => {
+        $('status').textContent = message;
+        $('status').dataset.kind = error ? 'error' : 'normal';
+      };
+      const setBusy = (value) => {
+        busy = value;
+        $('image-controls').disabled = value || !ready;
+        $('glass-controls').disabled = value || !ready;
+        $('file').disabled = value || !ready;
+        $('reset').disabled = value || !ready;
+        $('apply').disabled = value || !ready;
+        $('apply').textContent = value ? '正在应用…' : '应用更改';
+        $('form').setAttribute('aria-busy', String(value));
+      };
+      const request = async (path, options = {}) => {
+        const response = await fetch(apiURL(path), { ...options, cache: 'no-store', credentials: 'omit' });
+        let data;
+        try { data = await response.json(); } catch { throw new Error('主题服务返回了无法读取的响应。'); }
+        if (!response.ok) throw new Error(data.error || data.message || `请求失败（${response.status}）。`);
+        return data;
+      };
+      const patch = () => ({
+        position: `${$('position-x').value}% ${$('position-y').value}%`,
+        fit: $('fit').value,
+        wallpaperBrightness: Number($('wallpaperBrightness').value),
+        wallpaperBlur: Number($('wallpaperBlur').value),
+        mainAlpha: Number($('mainAlpha').value),
+        sidebarAlpha: Number($('sidebarAlpha').value),
+        floatingAlpha: Number($('floatingAlpha').value),
+        scrimAlpha: Number($('scrimAlpha').value)
+      });
+      const updatePreview = () => {
+        const settings = patch();
+        const css = $('preview').style;
+        css.setProperty('--position', settings.position);
+        css.setProperty('--fit', settings.fit);
+        css.setProperty('--brightness', settings.wallpaperBrightness);
+        css.setProperty('--blur', `${settings.wallpaperBlur}px`);
+        for (const key of ['main', 'sidebar', 'floating', 'scrim']) css.setProperty(`--${key}-alpha`, settings[`${key}Alpha`]);
+        for (const id of rangeIds) {
+          const value = Number($(id).value);
+          $(`${id}-value`).textContent = id === 'wallpaperBlur' ? `${value} px` : `${Math.round(value * (id.startsWith('position-') ? 1 : 100))}%`;
+          $(id).setAttribute('aria-valuetext', $(`${id}-value`).textContent);
+        }
+      };
+      const loadSettings = (config) => {
+        savedSettings = { ...defaultSettings, ...config };
+        const position = /^([\d.]+)%\s+([\d.]+)%$/.exec(savedSettings.position);
+        $('position-x').value = position ? position[1] : '60';
+        $('position-y').value = position ? position[2] : '42';
+        $('fit').value = savedSettings.fit === 'contain' ? 'contain' : 'cover';
+        for (const id of rangeIds.filter((id) => !id.startsWith('position-'))) $(id).value = savedSettings[id];
+        updatePreview();
+      };
+      const clearPreviewURL = () => {
+        if (previewURL) URL.revokeObjectURL(previewURL);
+        previewURL = null;
+      };
+      const showSavedWallpaper = (wallpaper) => {
+        clearPreviewURL();
+        selectedFile = null;
+        $('file').value = '';
+        $('filename').textContent = wallpaper && wallpaper.filename ? wallpaper.filename : '当前壁纸';
+        $('filemeta').textContent = 'JPG、PNG、WebP · 最大 20 MB';
+        const url = apiURL('/api/wallpaper');
+        url.searchParams.set('v', Date.now());
+        $('wallpaper').style.backgroundImage = `url("${url.href}")`;
+      };
+      const resultMessage = (result, reset = false) => {
+        if (result.applied) return reset ? '已恢复默认壁纸和设置，并应用到 Codex。' : '已保存，主题已应用到 Codex。';
+        const prefix = reset ? '已恢复默认壁纸和设置。' : '已保存。';
+        return result.runtime && result.runtime.connected
+          ? `${prefix}暂未应用到 Codex，请稍后重新应用。`
+          : `${prefix}当前未连接 Codex，请打开 Codex 后重新应用。`;
+      };
+      const setPreviewMode = (mode) => {
+        $('preview').dataset.mode = mode;
+        document.querySelectorAll('[data-preview-mode]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.previewMode === mode)));
+      };
+      document.querySelectorAll('[data-preview-mode]').forEach((button) => button.addEventListener('click', () => setPreviewMode(button.dataset.previewMode)));
+      setPreviewMode(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      $('form').addEventListener('input', () => {
+        updatePreview();
+        if (!busy && ready) setStatus('预览已更新，点击“应用更改”保存。');
+      });
+      $('file').addEventListener('change', () => {
+        const file = $('file').files[0];
+        if (!file) return;
+        const types = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+        const extension = file.name.split('.').pop().toLowerCase();
+        const type = file.type || types[extension];
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(type)) {
+          $('file').value = '';
+          setStatus('请选择 JPG、PNG 或 WebP 图片。', true);
+          return;
+        }
+        if (!file.size || file.size > 20 * 1024 * 1024) {
+          $('file').value = '';
+          setStatus(file.size ? '图片超过 20 MB，请选择更小的图片。' : '这张图片是空文件，请重新选择。', true);
+          return;
+        }
+        clearPreviewURL();
+        selectedFile = { file, type };
+        previewURL = URL.createObjectURL(file);
+        $('wallpaper').style.backgroundImage = `url("${previewURL}")`;
+        $('filename').textContent = file.name;
+        $('filemeta').textContent = `${(file.size / 1024 / 1024).toFixed(1)} MB · 待应用`;
+        setStatus('新壁纸已在本页预览，点击“应用更改”保存。');
+      });
+      $('form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!ready || busy) return;
+        setBusy(true);
+        setStatus('正在保存设置…');
+        try {
+          let result;
+          if (selectedFile) {
+            setStatus('正在保存壁纸…');
+            result = await request('/api/upload', { method: 'POST', headers: { 'Content-Type': selectedFile.type, 'X-Filename': encodeURIComponent(selectedFile.file.name), 'X-Theme-Settings': JSON.stringify(patch()) }, body: selectedFile.file });
+          } else {
+            result = await request('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch()) });
+          }
+          loadSettings(result.config || patch());
+          showSavedWallpaper(result.wallpaper);
+          setStatus(resultMessage(result));
+        } catch (error) {
+          setStatus(error.message, true);
+        } finally { setBusy(false); }
+      });
+      $('reset').addEventListener('click', async () => {
+        if (!ready || busy) return;
+        setBusy(true);
+        setStatus('正在恢复默认…');
+        try {
+          const result = await request('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+          loadSettings(result.config || defaultSettings);
+          showSavedWallpaper(result.wallpaper);
+          setStatus(resultMessage(result, true));
+        } catch (error) { setStatus(error.message, true); }
+        finally { setBusy(false); }
+      });
+      window.addEventListener('pagehide', clearPreviewURL);
+      const start = async () => {
+        if (!token) {
+          $('filename').textContent = '尚未连接主题服务';
+          setStatus('此页面缺少访问凭据，请通过 Liquid Glass 插件重新打开设置。', true);
+          return;
+        }
+        try {
+          const result = await request('/api/status');
+          loadSettings(result.config || defaultSettings);
+          showSavedWallpaper(result.wallpaper);
+          ready = true;
+          setBusy(false);
+          setStatus(result.applied ? '已连接。修改后点击“应用更改”即可。' : '设置已载入。修改后点击“应用更改”即可。');
+        } catch (error) {
+          $('filename').textContent = '当前壁纸暂时无法读取';
+          setStatus(`无法连接主题服务：${error.message}`, true);
+        }
+      };
+      start();
+    })();
+  </script>
+</body>
+</html>

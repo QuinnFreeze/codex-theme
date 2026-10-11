@@ -1,8 +1,9 @@
-/* Background optics only; text and controls retain native colors and opacity. */
+/* Glass surfaces and readable metadata; native font metrics stay unchanged. */
 :root[data-wynn-glass="on"] {
  --wynn-rgb: 255 255 255;
  --wynn-ink: 25 28 32;
- --wynn-muted: 82 89 98;
+ --wynn-muted: 62 69 78;
+ --wynn-reading-alpha: .90;
  --wynn-edge: rgb(255 255 255 / .68);
  --wynn-outline: rgb(var(--wynn-ink) / .12);
  --wynn-shadow: 0 8px 28px rgb(20 23 28 / .09);
@@ -13,6 +14,7 @@
  --wynn-rgb: 28 30 33;
  --wynn-ink: 245 245 247;
  --wynn-muted: 198 203 211;
+ --wynn-reading-alpha: .94;
  --wynn-edge: rgb(255 255 255 / .16);
  --wynn-outline: rgb(255 255 255 / .17);
  --wynn-shadow: 0 8px 28px rgb(0 0 0 / .24);

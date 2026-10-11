@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codex-liquid-glass",
+  "version": "1.0.0",
+  "description": "Manage the macOS Codex Liquid Glass theme and customize local wallpapers.",
+  "keywords": ["codex", "theme", "wallpaper", "macos"],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/theme/SKILL.md",
+      "interface": {
+        "displayName": "Codex Liquid Glass",
+        "shortDescription": "玻璃主题与自定义壁纸",
+        "longDescription": "为 macOS Codex 管理玻璃主题、本地壁纸、位置、亮度和透明度，支持设置页和即时刷新。",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": ["打开壁纸设置", "将 Codex 壁纸更换为我指定的本地图片"]
+      }
+    }
+  }
+}

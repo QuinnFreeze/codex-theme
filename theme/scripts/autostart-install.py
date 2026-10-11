@@ -78,12 +78,20 @@ if ROOT != target and any((ROOT / 'state' / name).exists() for name in ['control
 if old:
     subprocess.run([sys.executable, str(target / 'scripts/stop.py'), str(target), node], check=True)
 target.mkdir(parents=True, exist_ok=True)
-for directory in ['styles', 'wallpaper', 'scripts']:
+for directory in ['styles', 'scripts']:
     if ROOT != target:
         shutil.copytree(ROOT / directory, target / directory, dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__'))
+if ROOT != target:
+    # Imported/custom wallpapers and settings survive upgrades.
+    (target / 'wallpaper').mkdir(exist_ok=True)
+    for image in (ROOT / 'wallpaper').iterdir():
+        destination = target / 'wallpaper' / image.name
+        if image.is_file() and not destination.exists():
+            shutil.copy2(image, destination)
 for name in ['settings.json', 'README.md']:
     if ROOT != target:
-        shutil.copy2(ROOT / name, target / name)
+        if name != 'settings.json' or not (target / name).exists():
+            shutil.copy2(ROOT / name, target / name)
 (target / 'state').mkdir(exist_ok=True, mode=0o700)
 (target / 'bin').mkdir(exist_ok=True)
 shutil.copy2(stage / 'observer', target / 'bin/codex-theme-observer.new')

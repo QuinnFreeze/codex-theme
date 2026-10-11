@@ -1,0 +1,12 @@
+{
+  "name": "codex-liquid-glass",
+  "version": "1.0.0",
+  "description": "Manage the macOS Codex Liquid Glass theme and customize local wallpapers.",
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json",
+  "interface": {
+    "displayName": "Codex Liquid Glass",
+    "shortDescription": "玻璃主题与自定义壁纸",
+    "category": "Productivity"
+  }
+}

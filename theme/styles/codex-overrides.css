@@ -17,7 +17,30 @@
  --color-text-tooltip-classic: rgb(var(--wynn-ink));
  --color-token-dropdown-background: rgb(var(--wynn-rgb) / .98);
  --color-background-composer-action-bar: transparent;
+ /* Current and legacy UI tokens must use opaque ink over the wallpaper.
+    Disabled controls retain their native opacity on the control itself. */
+ --color-text-secondary: rgb(var(--wynn-muted));
+ --color-text-tertiary: rgb(var(--wynn-muted));
+ --app-color-text-foreground-secondary: rgb(var(--wynn-muted));
+ --app-color-text-foreground-tertiary: rgb(var(--wynn-muted));
 }
+/* Keep status hues recognizable while giving small light-mode labels enough ink. */
+:root[data-wynn-glass="on"][data-codex-window-type="electron"][data-theme="light"] {
+ --color-codex-git-added: #008333;
+ --color-text-warning: #b34408;
+ --color-text-info: #1f5dbb;
+ /* Tertiary text is readable ink; disabled text keeps the native palette. */
+ --color-text-disabled: rgba(26,28,31,.495);
+}
+:root[data-wynn-glass="on"][data-codex-window-type="electron"][data-theme="dark"] {
+ --color-text-info: #8ab8ff;
+ --color-text-disabled: rgba(255,255,255,.498);
+}
+/* These chart hues are also used for small status/button labels. Adjust only
+   their text, leaving the native tinted backgrounds and charts intact. */
+:root[data-wynn-glass="on"][data-theme="light"] .text-chart-red {color: #bc211e}
+:root[data-wynn-glass="on"][data-theme="light"] .text-chart-purple {color: #733bc4}
+:root[data-wynn-glass="on"][data-theme="dark"] .text-chart-purple {color: #bf96ff}
 :root[data-wynn-glass="on"] :is([data-app-shell-frame],[data-app-shell-page-surface]) {background: transparent !important}
 /* Keep the docked panels and navigation rail flush with the window edge;
    the composer has its own breathing room below. */
@@ -36,6 +59,11 @@
  box-shadow: none !important;
  --color-text-secondary: rgb(var(--wynn-muted));
  --color-text-tertiary: rgb(var(--wynn-muted));
+}
+/* Catalogs, schedules and settings have text outside message/composer sheets.
+   Give these pages a reading surface without covering the chat wallpaper. */
+:root[data-wynn-glass="on"] [data-app-shell-main-surface]:not(:has([data-codex-composer-root])) {
+ background: rgb(var(--wynn-rgb) / var(--wynn-reading-alpha)) !important;
 }
 /* The home footer already supplies 16px. Add 8px to match the thread's
    24px gap without moving overlays or detaching the composer from layout. */
@@ -63,7 +91,7 @@
   rgb(var(--wynn-rgb) / calc(var(--wynn-main-alpha) + var(--wynn-scrim-alpha) * (1 - var(--wynn-main-alpha)))) calc(var(--codex-sidebar-preferred-width,340px) + 88px),
   rgb(var(--wynn-rgb) / var(--wynn-main-alpha)) 100%) !important;
 }
-:root[data-wynn-glass="on"] [data-app-shell-responsive-sidebar="false"][data-app-shell-sidebar-open="true"][data-app-shell-page-sidebar="true"] > [data-app-shell-workspace-row] :is(.app-shell-left-panel,[data-app-shell-main-surface]) {
+:root[data-wynn-glass="on"] [data-app-shell-responsive-sidebar="false"][data-app-shell-sidebar-open="true"][data-app-shell-page-sidebar="true"] > [data-app-shell-workspace-row] :is(.app-shell-left-panel,[data-app-shell-main-surface]:has([data-codex-composer-root])) {
  background: transparent !important;
 }
 :root[data-wynn-glass="on"] [data-app-shell-responsive-sidebar="false"][data-app-shell-sidebar-open="true"][data-app-shell-page-sidebar="true"] > [data-app-shell-workspace-row] > .app-shell-left-panel::after {
@@ -117,6 +145,13 @@
  padding: 0;
  box-shadow: none;
 }
+/* Date separators sit directly on the artwork. A small reading plate keeps
+   their existing inline geometry, font metrics and selection behavior. */
+:root[data-wynn-glass="on"] .thread-scroll-container time[datetime] {
+ background: rgb(var(--wynn-rgb) / var(--wynn-reading-alpha));
+ box-shadow: 0 0 0 3px rgb(var(--wynn-rgb) / var(--wynn-reading-alpha));
+ border-radius: 4px;
+}
 :root[data-wynn-glass="on"] .group\/agent-activity {
  background: rgb(var(--wynn-rgb) / var(--wynn-activity-alpha));
  border: 1px solid var(--wynn-outline);
@@ -130,6 +165,11 @@
 }
 @layer utilities {
  :root[data-wynn-glass="on"] .group\/agent-activity :is([class~="text-text/60"],[class~="text-text/40"]) {
+  color: rgb(var(--wynn-muted)) !important;
+ }
+ /* Native [&_*:not(button)]:!text-text/60 also colors the nested text leaf.
+    Match only metadata spans so buttons, icons and status colors stay native. */
+ :root[data-wynn-glass="on"] .group\/agent-activity [class~="group/activity-header"] :is(span[class~="text-text/60"],span[class~="text-text/40"]) > span[class~="truncate"] {
   color: rgb(var(--wynn-muted)) !important;
  }
 }
@@ -167,6 +207,7 @@
  :root[data-wynn-glass="on"][data-theme] {
   --wynn-main-alpha: 1; --wynn-sidebar-alpha: 1; --wynn-floating-alpha: 1;
   --wynn-message-alpha: 1; --wynn-activity-alpha: 1; --wynn-focus-alpha: 1;
+  --wynn-reading-alpha: 1;
   --wynn-effective-blur: 0px;
  }
  :root[data-wynn-glass="on"] :is([data-composer-surface-variant],[role="menu"],[role="dialog"],[role="tooltip"],[data-radix-popper-content-wrapper]>div) {

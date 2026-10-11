@@ -1,0 +1,10 @@
+{
+  "name": "codex-theme-local",
+  "interface": {"displayName": "Codex Theme"},
+  "plugins": [{
+    "name": "codex-liquid-glass",
+    "source": {"source": "local", "path": "./plugins/codex-liquid-glass"},
+    "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+    "category": "Productivity"
+  }]
+}

@@ -2,9 +2,23 @@
 :root[data-wynn-glass="on"][data-codex-window-type="electron"] body {
  background-color: rgb(var(--wynn-rgb)) !important;
  background-image: var(--wynn-wallpaper) !important;
- background-size: cover !important;
+ background-size: var(--wynn-wallpaper-fit,cover) !important;
  background-position: var(--wynn-position,60% 42%) !important;
  background-repeat: no-repeat !important;
  background-attachment: fixed !important;
+}
+/* Opt-in image effects paint a separate layer so text remains sharp. */
+:root[data-wynn-glass="on"][data-codex-window-type="electron"][data-wynn-wallpaper-effects="on"] body {
+ background-image: none !important;
+ isolation: isolate;
+}
+:root[data-wynn-glass="on"][data-codex-window-type="electron"][data-wynn-wallpaper-effects="on"] body::before {
+ content: "";
+ position: fixed;
+ inset: 0;
+ z-index: -1;
+ pointer-events: none;
+ background: var(--wynn-wallpaper) var(--wynn-position,60% 42%) / var(--wynn-wallpaper-fit,cover) no-repeat;
+ filter: brightness(var(--wynn-wallpaper-brightness,1)) blur(var(--wynn-wallpaper-blur,0px));
 }
 :root[data-wynn-glass="on"][data-codex-window-type="electron"] #root {background: transparent !important}

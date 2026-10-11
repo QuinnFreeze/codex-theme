@@ -12,6 +12,7 @@ theme/state/
 /优化说明.md
 /综合测试与修复报告.md
 /主题加载性能与综合测试-*.md
+/界面文字可读性检查与修复-*.md
 
 # Generated installation and runtime artifacts.
 theme/bin/
@@ -20,3 +21,7 @@ theme/evidence/
 theme/autostart.json
 theme/Launch Liquid Glass.command
 theme/styles/compiled.css
+
+# Generated self-contained plugin payload and release archives.
+/plugins/codex-liquid-glass/theme/
+/dist/
