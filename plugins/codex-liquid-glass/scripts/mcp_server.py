@@ -80,7 +80,7 @@ def main():
             if method == "initialize":
                 result = {"protocolVersion": params.get("protocolVersion", "2024-11-05"),
                           "capabilities": {"tools": {}},
-                          "serverInfo": {"name": "codex-liquid-glass", "version": "1.0.0"}}
+                          "serverInfo": {"name": "codex-liquid-glass", "version": "1.0.1"}}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":

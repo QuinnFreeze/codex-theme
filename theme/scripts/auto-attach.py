@@ -81,7 +81,11 @@ with (state / 'attachment.lock').open('a') as lock:
     if listener_error:
         status(active=False, needsRestart=False, error=listener_error, version=app['version'])
         raise SystemExit(1)
-    (state / 'application.json').write_text(json.dumps(app, ensure_ascii=False, indent=2) + '\n')
+    app_state = dict(app)
+    app_state['pid'] = target_pid
+    app_state['port'] = port
+    app_state['uid'] = os.getuid()
+    (state / 'application.json').write_text(json.dumps(app_state, ensure_ascii=False, indent=2) + '\n')
     current = runtime_status()
     if current.get('shellSessions', 0) > 0 and current.get('port') == port:
         status(active=True, needsRestart=False, version=app['version'], port=port, reused=True)

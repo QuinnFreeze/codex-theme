@@ -27,6 +27,17 @@ def main():
     distribution = base / "distribution"
     distribution.mkdir(parents=True, exist_ok=True)
     destination = distribution / "plugins/codex-liquid-glass"
+    # Verify source payload does not contain any symbolic links before distribution
+    for root_dir, dirs, files in os.walk(source, followlinks=False):
+        current = Path(root_dir)
+        if current.is_symlink():
+            raise SystemExit(f"检测到非法目录符号链接：{current}")
+        for d in dirs:
+            if (current / d).is_symlink():
+                raise SystemExit(f"检测到非法目录符号链接：{current / d}")
+        for f in files:
+            if (current / f).is_symlink():
+                raise SystemExit(f"检测到非法文件符号链接：{current / f}")
     backup = None
     if destination.exists():
         backup = base / "backups" / datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")

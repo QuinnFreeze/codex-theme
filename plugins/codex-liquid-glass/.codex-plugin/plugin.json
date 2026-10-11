@@ -1,6 +1,6 @@
 {
   "name": "codex-liquid-glass",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Manage the macOS Codex Liquid Glass theme and customize local wallpapers.",
   "skills": "./skills/",
   "mcpServers": "./mcp.json",

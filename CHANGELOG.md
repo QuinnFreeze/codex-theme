@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.1 (2026-10-11)
+
+### Security Fixes & Hardening
+
+- **Resource Boundary & Symlink Protection:** `scripts/build-plugin.py` strictly verifies source file boundaries and rejects symbolic links, broken links, or directory symlinks, preventing external file inclusion in release archives.
+- **Reliable Cleanup & State Tracking:** `theme/scripts/runtime.mjs` and `theme/scripts/stop.py` now track per-target cleanup errors, preserve `registrations.json` on partial failure, and never falsely report `removed: true` when hooks remain.
+- **Process & UID Verification:** `verifyOwner` in `runtime.mjs` and process monitors in `autostart_common.py` verify that listener processes match current user UID, expected application PID, and official application executable path.
+- **Official App Signature Checks:** `autostart_common.py` validates macOS application bundle code signatures via strict code signature checking.
+- **Strict Document URL Boundaries:** `isThemeDocumentURL` enforces strict path boundaries to prevent subdomain or suffix spoofing; `applyOnce` uses `documentExpression` runtime URL guards.
+- **Private Inspection Permissions:** `scripts/verify-live.mjs` creates output directories with `0700` and screenshot/verification files with `0600` permissions.
+- **Security Testing & CI:** Added dedicated security test suites (`test_build_plugin_security.py`, `runtime-security.test.mjs`), `SECURITY.md`, and automated GitHub Actions security workflow.
+
 ## 2026-10-11
 
 ### Changes

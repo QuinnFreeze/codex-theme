@@ -32,7 +32,7 @@ def png(width=2, height=2, colour=(10, 80, 120)):
 
 class ControllerCase(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory(prefix="glass-", dir="/tmp")
+        self.directory = tempfile.TemporaryDirectory(prefix="glass-")
         self.root = Path(self.directory.name)
         (self.root / "wallpaper").mkdir()
         self.initial_image = png()
@@ -91,8 +91,9 @@ class ControllerCase(unittest.TestCase):
         self.assertFalse((self.root / "state/wallpaper-default.json").exists())
 
     def test_wallpaper_cannot_escape_root_via_config_or_symlink(self):
-        (self.root / "wallpaper/outside.png").symlink_to("/tmp/outside.png")
-        for path in ("../outside.png", "/tmp/outside.png", "wallpaper/outside.png"):
+        outside = Path(tempfile.gettempdir()) / "outside.png"
+        (self.root / "wallpaper/outside.png").symlink_to(outside)
+        for path in ("../outside.png", str(outside), "wallpaper/outside.png"):
             cfg = {**self.initial, "wallpaper": path}
             with self.assertRaises(control.ThemeError):
                 self.controller._validate_config(cfg)

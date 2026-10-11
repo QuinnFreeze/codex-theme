@@ -1,0 +1,44 @@
+name: Security and Regression Checks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run Node test suite
+        run: |
+          node --test tests/*.test.mjs
+
+      - name: Run Python security and installation tests
+        run: |
+          python3 -m unittest tests/test_build_plugin_security.py
+          python3 -m unittest tests/test_mcp_server.py
+          python3 -m unittest tests/test_plugin_install.py
+
+      - name: Verify clean build and release package
+        run: |
+          python3 scripts/build-plugin.py
+          test -f dist/codex-liquid-glass-1.0.1.zip
+          test -f dist/codex-liquid-glass-1.0.1.zip.sha256
+          (cd dist && shasum -a 256 -c codex-liquid-glass-1.0.1.zip.sha256)

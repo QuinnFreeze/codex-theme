@@ -39,10 +39,28 @@ if isinstance(pid, int):
 if (state / 'registrations.json').exists():
     listener = subprocess.run(['/usr/sbin/lsof', '-nP', '-iTCP:' + str(port),
                                '-sTCP:LISTEN', '-t'], capture_output=True, text=True)
-    if listener.stdout.strip():
-        subprocess.run([node, str(root / 'scripts/runtime.mjs'), 'once-remove', str(port)], check=True)
-    # Without a listener the renderer and its hooks no longer exist.
+    if listener.returncode == 0 and listener.stdout.strip():
+        res = subprocess.run([node, str(root / 'scripts/runtime.mjs'), 'once-remove', str(port)],
+                             capture_output=True, text=True)
+        if res.returncode != 0:
+            raise SystemExit('备用撤销执行失败：' + res.stderr)
+        try:
+            out = json.loads(res.stdout)
+            if out.get('removed') is not True:
+                raise SystemExit('备用撤销未完成全部清理：' + res.stdout)
+        except Exception:
+            raise SystemExit('备用撤销解析错误：' + res.stdout)
+    elif listener.returncode != 1:
+        # lsof error or permission denied (unknown), do not treat as dead
+        raise SystemExit('无法确认本地调试端口状态（lsof 状态码 %d）；保留注册状态以防残留。' % listener.returncode)
+    else:
+        # listener.returncode == 1: No listener active, renderer is confirmed terminated.
+        (state / 'registrations.json').unlink(missing_ok=True)
 
-for name in ['control.sock', 'registrations.json', 'daemon.json']:
+for name in ['control.sock', 'daemon.json']:
     (state / name).unlink(missing_ok=True)
-print(json.dumps({'removed': True, 'staleStateCleared': True}))
+
+if not (state / 'registrations.json').exists():
+    print(json.dumps({'removed': True, 'staleStateCleared': True}))
+else:
+    raise SystemExit('仍有未清理的注入钩子，保留 registrations.json 以供恢复。')

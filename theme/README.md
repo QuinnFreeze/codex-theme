@@ -85,7 +85,7 @@ The previous verification environment was **Codex 26.930.61225 on Intel macOS**.
 
 The 2026-10-11 update includes actual interface readability checks, 25 Python regression tests, 15 Node runtime/build tests, and release packaging checks. See the repository changelog for the visual coverage limits. This upload preparation did not repeat reinstallation, removal, or a full quit-and-relaunch test of the main app. Apple Silicon, later Codex versions, and system restarts have not been verified. Changes to the app's native DOM may require CSS adjustments.
 
-The theme uses the local debugging interface at `127.0.0.1:9236` and verifies that the listening process belongs to the official app. Use it only in a trusted local environment; do not forward or expose this port.
+The theme uses the local debugging interface at `127.0.0.1:9236` and verifies that the listening process matches the current user UID and official app. Stopping the daemon removes injected styles, but closing the debugging port requires quitting Codex normally. Use it only in a trusted local environment; do not forward or expose this port. See [SECURITY.md](../SECURITY.md) for full security architecture details.
 
 ## Sources
 
