@@ -23,6 +23,7 @@ import re
 import secrets
 import signal
 import socket
+import socketserver
 import struct
 import subprocess
 import sys
@@ -623,6 +624,11 @@ class PanelServer(http.server.ThreadingHTTPServer):
         super().__init__(("127.0.0.1", 0), PanelHandler)
         self.expected_host = "127.0.0.1:" + str(self.server_address[1])
         self.expected_origin = "http://" + self.expected_host
+
+    def server_bind(self):
+        # A numeric loopback listener needs no reverse DNS, which can block startup.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
     def get_request(self):
         connection, address = super().get_request()

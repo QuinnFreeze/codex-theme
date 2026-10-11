@@ -144,6 +144,17 @@ class ControllerCase(unittest.TestCase):
             listener.close()
             thread.join(timeout=2)
 
+    def test_panel_startup_does_not_require_reverse_dns(self):
+        with mock.patch.object(control.socket, "getfqdn", side_effect=AssertionError("Loopback startup must not resolve hostnames")):
+            server = control.PanelServer(self.controller, self.root / "settings.html")
+        try:
+            self.assertEqual(server.server_address[0], "127.0.0.1")
+            self.assertEqual(server.server_name, "127.0.0.1")
+            self.assertEqual(server.server_port, server.server_address[1])
+            self.assertEqual(server.expected_host, "127.0.0.1:" + str(server.server_port))
+        finally:
+            server.server_close()
+
     def test_detached_panel_reuses_private_handoff(self):
         if not (SCRIPT.parent.parent / "assets/settings.html").is_file():
             self.skipTest("Settings asset is not packaged yet")
