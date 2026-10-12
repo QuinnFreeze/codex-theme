@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -159,6 +160,70 @@ class BuildPluginSecurityTest(unittest.TestCase):
         # Existing files should not be corrupted or deleted
         self.assertEqual(archive.read_bytes(), original_zip_bytes)
         self.assertEqual((self.plugin / "theme/scripts/runtime.mjs").read_bytes(), original_theme_file)
+
+    def release_state(self):
+        payload = self.plugin / "theme"
+        archive = self.repo / "dist/codex-liquid-glass-1.0.1.zip"
+        checksum = archive.with_suffix(".zip.sha256")
+        return {
+            "payload": {
+                str(path.relative_to(payload)): path.read_bytes()
+                for path in payload.rglob("*") if path.is_file()
+            } if payload.exists() else None,
+            "archive": archive.read_bytes() if archive.exists() else None,
+            "checksum": checksum.read_bytes() if checksum.exists() else None,
+        }
+
+    def fail_release_commit(self, builder, fault):
+        archive = self.repo / "dist/codex-liquid-glass-1.0.1.zip"
+        checksum = archive.with_suffix(".zip.sha256")
+        real_replace = builder.os.replace
+        real_rename = Path.rename
+        failed = False
+
+        def replace(source, destination):
+            nonlocal failed
+            target = archive if fault == "archive" else checksum
+            if fault != "payload" and Path(destination) == target and not failed:
+                failed = True
+                raise OSError("fixture release commit failure")
+            return real_replace(source, destination)
+
+        def rename(source, destination):
+            nonlocal failed
+            if fault == "payload" and source == self.plugin / "theme.stage" and not failed:
+                failed = True
+                raise OSError("fixture release commit failure")
+            return real_rename(source, destination)
+
+        with mock.patch.object(builder.os, "replace", side_effect=replace), \
+                mock.patch.object(Path, "rename", new=rename):
+            with self.assertRaisesRegex(OSError, "fixture release commit failure"):
+                builder.main()
+        self.assertTrue(failed)
+
+    def test_commit_failures_restore_payload_archive_and_checksum_together(self):
+        builder = load_builder(self.repo / "scripts/build-plugin.py")
+        builder.ROOT = self.repo
+        builder.PLUGIN = self.plugin
+        for fault in ("payload", "archive", "checksum"):
+            with self.subTest(fault=fault):
+                builder.main()
+                previous = self.release_state()
+                (self.repo / "theme/scripts/runtime.mjs").write_text("// new release " + fault)
+                self.fail_release_commit(builder, fault)
+                self.assertEqual(self.release_state(), previous)
+
+    def test_first_build_commit_failures_leave_no_partial_release(self):
+        builder = load_builder(self.repo / "scripts/build-plugin.py")
+        builder.ROOT = self.repo
+        builder.PLUGIN = self.plugin
+        for fault in ("payload", "archive", "checksum"):
+            with self.subTest(fault=fault):
+                self.fail_release_commit(builder, fault)
+                self.assertEqual(self.release_state(), {
+                    "payload": None, "archive": None, "checksum": None,
+                })
 
 
 if __name__ == "__main__":

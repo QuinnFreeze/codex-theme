@@ -10,10 +10,16 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins/codex-liquid-glass"
+# Keep the installed distribution allowlist in scripts/install-plugin.py equivalent.
+PLUGIN_FILES = ("plugin.json", "mcp.json", "README.md", ".codex-plugin/plugin.json")
+PLUGIN_DIRECTORIES = ("scripts", "assets", "skills")
+THEME_FILES = ("settings.json", "README.md")
+THEME_DIRECTORIES = ("scripts", "styles", "wallpaper")
 
 
 def verify_path_security(path: Path, root_bound: Path) -> None:
@@ -85,6 +91,46 @@ def safe_copy_file(src: Path, dst: Path, src_bound: Path) -> None:
     shutil.copy2(src, dst, follow_symlinks=False)
 
 
+def remove_release_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def commit_release(entries) -> None:
+    """Replace payload, archive, and checksum together or restore their prior state."""
+    transaction = uuid.uuid4().hex
+    backups = []
+    installed = []
+    try:
+        # Keep backups beside each original so renames stay on the same filesystem.
+        for staged, target in entries:
+            if target.exists() or target.is_symlink():
+                backup = target.with_name(target.name + ".backup-" + transaction)
+                target.rename(backup)
+                backups.append((target, backup))
+        for staged, target in entries:
+            if staged.is_dir():
+                staged.rename(target)
+            else:
+                os.replace(staged, target)
+            installed.append(target)
+    except Exception:
+        for target in reversed(installed):
+            remove_release_path(target)
+        for target, backup in reversed(backups):
+            backup.rename(target)
+        raise
+    else:
+        for target, backup in backups:
+            try:
+                remove_release_path(backup)
+            except OSError:
+                # The complete new release is committed; retain any undeletable backup.
+                pass
+
+
 def main():
     version = json.loads((PLUGIN / "plugin.json").read_text())["version"]
     stage_payload = PLUGIN / "theme.stage"
@@ -101,27 +147,27 @@ def main():
     try:
         stage_payload.mkdir(parents=True)
         # 1. Populate stage payload safely from theme source
-        for name in ("scripts", "styles", "wallpaper"):
+        for name in THEME_DIRECTORIES:
             safe_copy_tree(
                 ROOT / "theme" / name,
                 stage_payload / name,
                 ROOT / "theme",
                 ignore_patterns=("__pycache__", "*.pyc", "compiled.css"),
             )
-        for name in ("settings.json", "README.md"):
+        for name in THEME_FILES:
             safe_copy_file(ROOT / "theme" / name, stage_payload / name, ROOT / "theme")
 
         # 2. Gather all sources for the release archive
         archive_entries = []  # list of (source_path, archive_relpath)
 
         # Plugin root metadata files
-        for name in ("plugin.json", "mcp.json", "README.md", ".codex-plugin/plugin.json"):
+        for name in PLUGIN_FILES:
             p = PLUGIN / name
             verify_path_security(p, PLUGIN)
             archive_entries.append((p, f"plugins/codex-liquid-glass/{name}"))
 
         # Plugin subdirectories (scripts, assets, skills)
-        for directory in ("scripts", "assets", "skills"):
+        for directory in PLUGIN_DIRECTORIES:
             base_dir = PLUGIN / directory
             verify_path_security(base_dir, PLUGIN)
             for root_dir, dirs, files in os.walk(base_dir, followlinks=False):
@@ -175,20 +221,13 @@ def main():
         stage_checksum = stage_archive.with_suffix(".zip.sha256")
         stage_checksum.write_text(digest + "  " + archive.name + "\n")
 
-        # 4. Atomic commit: swap payload and archive
+        # 4. Commit all release components, retaining their originals until success.
         target_payload = PLUGIN / "theme"
-        old_payload = PLUGIN / "theme.old"
-        if old_payload.exists():
-            shutil.rmtree(old_payload)
-
-        if target_payload.exists():
-            target_payload.rename(old_payload)
-        stage_payload.rename(target_payload)
-        if old_payload.exists():
-            shutil.rmtree(old_payload)
-
-        os.replace(stage_archive, archive)
-        os.replace(stage_checksum, archive.with_suffix(".zip.sha256"))
+        commit_release((
+            (stage_payload, target_payload),
+            (stage_archive, archive),
+            (stage_checksum, archive.with_suffix(".zip.sha256")),
+        ))
 
         print(json.dumps({"pluginRoot": str(PLUGIN), "archive": str(archive), "sha256": digest}, ensure_ascii=False))
 

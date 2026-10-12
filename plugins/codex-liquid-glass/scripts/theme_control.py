@@ -330,7 +330,9 @@ class Controller:
         for key in ("mainAlpha", "sidebarAlpha", "floatingAlpha", "messageAlpha", "scrimAlpha", "activityAlpha", "sidebarBlur", "floatingBlur", "wallpaperBrightness", "wallpaperBlur"):
             value = cfg[key]
             low, high = (0.25, 2) if key == "wallpaperBrightness" else (0, 24 if key.endswith("Blur") else 1)
-            if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
+            # Check the bounds before converting an arbitrary JSON integer to
+            # float: math.isfinite() can overflow even for valid JSON numbers.
+            if type(value) not in (int, float) or not low <= value <= high or not math.isfinite(value):
                 raise ThemeError(f"{key} 必须是 {low} 到 {high} 之间的数值。")
         match = POSITION_RE.fullmatch(cfg["position"]) if isinstance(cfg["position"], str) else None
         if not match or any(not 0 <= float(v) <= 100 for v in match.groups()):
@@ -357,7 +359,10 @@ class Controller:
 
     def _read_state(self, name, fallback=None):
         try:
-            return json.loads(_read_bounded(self._inside("state/" + name), MAX_CONFIG_BYTES))
+            value = json.loads(_read_bounded(self._inside("state/" + name), MAX_CONFIG_BYTES))
+            # These state files are objects; valid JSON scalars/arrays can be
+            # stale or damaged state and must not break recovery or shutdown.
+            return value if isinstance(value, dict) else fallback
         except (OSError, ValueError):
             return fallback
 
@@ -392,7 +397,10 @@ class Controller:
     def _wallpaper_info(self, cfg):
         path = self._inside(cfg["wallpaper"])
         metadata = self._read_state("wallpaper-info.json", {})
-        filename = metadata.get(cfg["wallpaper"], {}).get("filename", path.name) if isinstance(metadata, dict) else path.name
+        entry = metadata.get(cfg["wallpaper"])
+        filename = entry.get("filename") if isinstance(entry, dict) else None
+        if not isinstance(filename, str) or not filename:
+            filename = path.name
         if path.name.startswith("plugin-default."):
             filename = "默认壁纸"
         return {"path": cfg["wallpaper"], "filename": filename, "mime": MIME_TYPES[path.suffix.lower()], "bytes": path.stat().st_size}
@@ -562,8 +570,8 @@ class Controller:
         handoff = self._read_state("panel.json")
         if not isinstance(handoff, dict) or not isinstance(handoff.get("port"), int) or not isinstance(handoff.get("token"), str):
             return None
-        port, token = handoff["port"], handoff["token"]
-        if not 1 <= port <= 65535 or len(token) < 32:
+        port, token, instance = handoff["port"], handoff["token"], handoff.get("instance")
+        if not 1 <= port <= 65535 or len(token) < 32 or not isinstance(instance, str) or not instance:
             return None
         url = f"http://127.0.0.1:{port}/?token={urllib.parse.quote(token)}"
         request = urllib.request.Request(f"http://127.0.0.1:{port}/api/ping?token={urllib.parse.quote(token)}")
@@ -571,7 +579,7 @@ class Controller:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             with opener.open(request, timeout=1) as response:
                 alive = json.loads(response.read(1024))
-            if alive.get("instance") == handoff.get("instance"):
+            if isinstance(alive, dict) and alive.get("instance") == instance:
                 return url
         except (OSError, ValueError):
             pass

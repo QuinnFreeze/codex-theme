@@ -190,6 +190,32 @@ export async function reloadSessions({sessions, registry, persist}, payload, dig
   return {reloaded: true, applied: loaded.some(s => s.main) && errors.length === 0, sessions: loaded.length, shellSessions: loaded.filter(s => s.main).length, configSha256: digest, errors};
 }
 
+// An empty registration keeps a target whose hooks are gone but whose current
+// document still needs cleanup. Delete its key only after both are confirmed.
+export async function removeTargetTheme(id, connection, {registry, persist}, additionalHooks = []) {
+  const errors = [];
+  registry[id] = [...new Set([...(registry[id] || []), ...additionalHooks].filter(Boolean))];
+  persist();
+  for (const identifier of [...registry[id]]) {
+    try {
+      await connection.call('Page.removeScriptToEvaluateOnNewDocument', {identifier});
+      registry[id] = registry[id].filter(value => value !== identifier);
+      persist();
+    } catch (error) {
+      errors.push({target: id, hook: identifier, error: error.message});
+    }
+  }
+  try {
+    const result = await connection.eval(removeExpression);
+    if (result?.removed !== true) throw Error('Current document did not confirm theme removal');
+    if (!registry[id].length) delete registry[id];
+  } catch (error) {
+    errors.push({target: id, stage: 'document', error: error.message});
+  }
+  persist();
+  return errors;
+}
+
 export const SHELL_WAIT_MS = 90000, SHELL_EVAL_TIMEOUT_MS = 95000;
 
 export function waitForShell(timeoutMs = SHELL_WAIT_MS) {
@@ -229,6 +255,7 @@ export function retireSession(id, session, {sessions, registry, persist}) {
   const identifiers = [...new Set([...(registry[id] || []), session.script].filter(Boolean))];
   session.retiring = Promise.resolve().then(async () => {
     const removed = new Set();
+    let documentRemoved = false;
     try {
       for (const identifier of identifiers) {
         if (sessions.get(id) !== session) break;
@@ -239,13 +266,24 @@ export function retireSession(id, session, {sessions, registry, persist}) {
           console.error('Pending hook retained for cleanup: ' + id + ' (' + e.message + ')');
         }
       }
-      if (sessions.get(id) === session) await session.c.eval(removeExpression).catch(() => {});
+      if (sessions.get(id) === session) {
+        try {
+          documentRemoved = (await session.c.eval(removeExpression))?.removed === true;
+          if (!documentRemoved) throw Error('Current document did not confirm theme removal');
+        } catch (e) {
+          console.error('Pending document retained for cleanup: ' + id + ' (' + e.message + ')');
+        }
+      }
     } finally {
+      const tracked = sessions.get(id) === session;
       session.c.close();
-      if (sessions.get(id) === session) sessions.delete(id);
+      if (tracked) sessions.delete(id);
       if (registry[id]) {
         registry[id] = registry[id].filter(identifier => !removed.has(identifier));
-        if (!registry[id].length) delete registry[id];
+        if (!registry[id].length && documentRemoved) delete registry[id];
+      } else if (tracked) {
+        const remaining = identifiers.filter(identifier => !removed.has(identifier));
+        if (!documentRemoved || remaining.length) registry[id] = remaining;
       }
       persist();
     }
@@ -306,22 +344,12 @@ if (command === 'once-remove') {
   ensureStateDir();
   const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : {};
   const errors = [];
+  const persist = () => fs.writeFileSync(registryPath, JSON.stringify(registry));
   try {
     for (const t of await pages(port)) {
       const c = new Connection(t.webSocketDebuggerUrl, port);
       try {
-        for (const id of [...(registry[t.id] || [])]) {
-          try {
-            await c.call('Page.removeScriptToEvaluateOnNewDocument', {identifier: id});
-            if (registry[t.id]) {
-              registry[t.id] = registry[t.id].filter(v => v !== id);
-              if (!registry[t.id].length) delete registry[t.id];
-            }
-          } catch (err) {
-            errors.push({target: t.id, hook: id, error: err.message});
-          }
-        }
-        await c.eval(removeExpression).catch(() => {});
+        errors.push(...await removeTargetTheme(t.id, c, {registry, persist}));
       } finally {
         c.close();
       }
@@ -330,7 +358,7 @@ if (command === 'once-remove') {
     errors.push({target: 'pages', error: err.message});
   }
 
-  if (Object.keys(registry).length === 0) {
+  if (Object.keys(registry).length === 0 && errors.length === 0) {
     fs.rmSync(registryPath, {force: true});
     console.log(JSON.stringify({removed: true}));
   } else {
@@ -351,8 +379,8 @@ if (command === 'daemon') {
   let stopping = false;
   let browserDead = false;
 
-  const persistRegistry = () => {
-    if (Object.keys(registry).length === 0) {
+  const persistRegistry = (retainEmpty = false) => {
+    if (Object.keys(registry).length === 0 && !retainEmpty) {
       fs.rmSync(registryPath, {force: true});
     } else {
       fs.writeFileSync(registryPath, JSON.stringify(registry));
@@ -460,6 +488,7 @@ if (command === 'daemon') {
   const remove = async () => {
     stopping = true;
     const errors = [];
+    let inventoryFailed = false;
     for (const [id, session] of sessions.entries()) {
       if (session.retiring) {
         await session.retiring.catch(() => {});
@@ -467,20 +496,10 @@ if (command === 'daemon') {
       }
       const {c, script} = session;
       try {
-        if (script) {
-          try {
-            await c.call('Page.removeScriptToEvaluateOnNewDocument', {identifier: script});
-            if (registry[id]) {
-              registry[id] = registry[id].filter(v => v !== script);
-              if (!registry[id].length) delete registry[id];
-              persistRegistry();
-            }
-          } catch (err) {
-            errors.push({target: id, hook: script, error: err.message});
-          }
-        }
-        await c.eval(removeExpression).catch(() => {});
-      } catch {}
+        errors.push(...await removeTargetTheme(id, c, {registry, persist: persistRegistry}, [script]));
+      } catch (err) {
+        errors.push({target: id, error: err.message});
+      }
       c.close();
     }
     sessions.clear();
@@ -488,33 +507,27 @@ if (command === 'daemon') {
     if (!browserDead) {
       try {
         for (const t of await pages(port)) {
-          if (!registry[t.id] || !registry[t.id].length) continue;
+          if (!Object.hasOwn(registry, t.id)) continue;
           const c = new Connection(t.webSocketDebuggerUrl, port);
           try {
-            for (const id of [...registry[t.id]]) {
-              try {
-                await c.call('Page.removeScriptToEvaluateOnNewDocument', {identifier: id});
-                registry[t.id] = registry[t.id].filter(v => v !== id);
-                if (!registry[t.id].length) delete registry[t.id];
-                persistRegistry();
-              } catch (err) {
-                errors.push({target: t.id, hook: id, error: err.message});
-              }
-            }
-            await c.eval(removeExpression).catch(() => {});
+            errors.push(...await removeTargetTheme(t.id, c, {registry, persist: persistRegistry}));
           } finally {
             c.close();
           }
         }
       } catch (e) {
-        if (!browserDead) console.error(e.message);
+        if (!browserDead) {
+          inventoryFailed = true;
+          errors.push({target: 'pages', error: e.message});
+          console.error(e.message);
+        }
       }
     }
 
-    persistRegistry();
+    persistRegistry(inventoryFailed);
     browser.close();
     return {
-      removed: Object.keys(registry).length === 0,
+      removed: Object.keys(registry).length === 0 && !inventoryFailed,
       errors,
       remaining: registry
     };

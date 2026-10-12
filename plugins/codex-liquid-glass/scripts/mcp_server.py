@@ -36,15 +36,19 @@ TOOLS = [
 ]
 
 
-def call_tool(controller, name, args):
+def validate_tool_arguments(name, args):
     definitions = {entry[0]: entry[2] for entry in TOOLS}
-    if name not in definitions:
+    if not isinstance(name, str) or name not in definitions:
         raise ValueError("Unknown theme tool")
     if not isinstance(args, dict):
         raise ValueError("Tool arguments must be an object")
     expected = definitions[name]
     if set(args) - set(expected["properties"]) or set(expected["required"]) - set(args):
         raise ValueError("Invalid tool arguments")
+
+
+def call_tool(controller, name, args):
+    validate_tool_arguments(name, args)
     if name == "get_theme_status":
         return controller.status()
     if name == "open_wallpaper_settings":
@@ -65,18 +69,35 @@ def respond(value):
     sys.stdout.flush()
 
 
+def protocol_error(request_id, code, message):
+    respond({"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}})
+
+
 def main():
     theme_root = Path(os.environ.get("CODEX_THEME_ROOT", str(Path.home() / "Library/Application Support/CodexTheme")))
     for line in sys.stdin:
         if len(line) > 2 * 1024 * 1024:
             continue
-        request = None
         try:
             request = json.loads(line)
-            if not isinstance(request, dict) or "id" not in request:
-                continue
-            method = request.get("method")
-            params = request.get("params", {})
+        except (ValueError, RecursionError):
+            protocol_error(None, -32700, "Parse error")
+            continue
+        if not isinstance(request, dict) or request.get("jsonrpc") != "2.0" or not isinstance(request.get("method"), str):
+            protocol_error(None, -32600, "Invalid Request")
+            continue
+        if "id" not in request:
+            continue  # Valid notifications never receive a response.
+        request_id = request["id"]
+        if type(request_id) not in (str, int):
+            protocol_error(None, -32600, "Invalid Request")
+            continue
+        method = request["method"]
+        params = request.get("params", {})
+        if not isinstance(params, dict):
+            protocol_error(request_id, -32602, "Method parameters must be an object")
+            continue
+        try:
             if method == "initialize":
                 result = {"protocolVersion": params.get("protocolVersion", "2024-11-05"),
                           "capabilities": {"tools": {}},
@@ -90,6 +111,7 @@ def main():
                     for name, desc, shape, read_only in TOOLS]}
             elif method == "tools/call":
                 try:
+                    validate_tool_arguments(params.get("name"), params.get("arguments", {}))
                     try:
                         controller = Controller(theme_root)
                     except ThemeError as error:
@@ -108,8 +130,7 @@ def main():
                 continue
             respond({"jsonrpc": "2.0", "id": request["id"], "result": result})
         except Exception as error:
-            respond({"jsonrpc": "2.0", "id": request.get("id") if isinstance(request, dict) else None,
-                     "error": {"code": -32600, "message": str(error)}})
+            protocol_error(request_id, -32603, str(error))
 
 
 if __name__ == "__main__":

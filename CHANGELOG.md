@@ -2,6 +2,15 @@
 
 ## 2026-10-12
 
+### Failure recovery and settings regression fixes
+
+- Commit the generated theme payload, release ZIP, and checksum as one recoverable transaction; failed replacements restore the previous release or remove incomplete first-build output.
+- Install only the published plugin files and theme payload. Local state, backups, reports, and generated caches no longer enter the installed distribution.
+- Confirm both future-document hooks and current-document theme removal before reporting success. Retain pending document cleanup and failed target inventory for retry, including navigation cleanup without an existing registration.
+- Reject extreme numeric settings with readable errors and recover safely from malformed panel state or wallpaper metadata without changing saved settings.
+- Validate MCP request shape, IDs, and method parameters, return the appropriate JSON-RPC errors, and validate tool arguments before checking installation state.
+- Preserve valid fractional wallpaper positions, brightness, blur, and opacity when the settings page is loaded and applied.
+
 ### MCP compatibility and CI regression fix
 
 - Restore the working newline JSON-RPC transport and existing tool parameters after an incompatible upload changed them without updating the controller.

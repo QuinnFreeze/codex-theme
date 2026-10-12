@@ -246,6 +246,41 @@ class InstallFixture(unittest.TestCase):
         self.assertEqual(source.read_bytes(), (destination / "theme/scripts/runtime.mjs").read_bytes())
         self.assertTrue(any(command[1:] == [str(self.repo / "scripts/build-plugin.py")] for command in self.distribution_calls))
 
+    def test_source_install_omits_local_plugin_state_and_matches_release_files(self):
+        for filename in ("state/private.json", "backups/private.json", "local-report.md", ".codex-plugin/local.json"):
+            file = self.plugin / filename
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(b"local-only fixture")
+        self.run_distribution_install()
+        destination = self.home / ".codex/codex-theme/distribution/plugins/codex-liquid-glass"
+        archive = next((self.repo / "dist").glob("*.zip"))
+        prefix = "plugins/codex-liquid-glass/"
+        with zipfile.ZipFile(archive) as bundle:
+            published = {
+                name[len(prefix):]: hashlib.sha256(bundle.read(name)).hexdigest()
+                for name in bundle.namelist() if name.startswith(prefix)
+            }
+        self.assertEqual(hashes(destination), published)
+
+    def test_release_install_omits_local_theme_state_and_compiled_cache(self):
+        # An unpacked ZIP contains the bundled payload without the source theme tree.
+        shutil.rmtree(self.repo / "theme")
+        local_files = (
+            "theme/state/daemon.json", "theme/backups/private.json", "theme/evidence/screenshot.png",
+            "theme/bin/observer", "theme/autostart.json", "theme/local-report.md", "theme/styles/compiled.css",
+        )
+        for filename in local_files:
+            file = self.plugin / filename
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(b"machine-only fixture")
+        self.run_distribution_install()
+        destination = self.home / ".codex/codex-theme/distribution/plugins/codex-liquid-glass"
+        for filename in local_files:
+            self.assertFalse((destination / filename).exists(), filename)
+        for filename in ("plugin.json", "mcp.json", ".codex-plugin/plugin.json", "theme/settings.json",
+                         "theme/README.md", "theme/scripts/runtime.mjs", "theme/wallpaper/current.jpg"):
+            self.assertEqual((destination / filename).read_bytes(), (self.plugin / filename).read_bytes())
+
     def test_failed_native_registration_restores_distribution_and_catalog_exactly(self):
         distribution = self.home / ".codex/codex-theme/distribution"
         destination = distribution / "plugins/codex-liquid-glass"

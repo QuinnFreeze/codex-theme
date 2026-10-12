@@ -90,6 +90,48 @@ class ControllerCase(unittest.TestCase):
         self.assertEqual(list((self.root / "wallpaper").iterdir()), [self.root / "wallpaper/current.png"])
         self.assertFalse((self.root / "state/wallpaper-default.json").exists())
 
+    def test_extreme_integer_settings_are_actionable_and_preserve_config(self):
+        for value in (10 ** 400, -(10 ** 400)):
+            with self.subTest(value_sign=value > 0), mock.patch.object(control, "_decode_image"):
+                with self.assertRaisesRegex(control.ThemeError, "mainAlpha"):
+                    self.controller.update_settings({"mainAlpha": value})
+            self.assertEqual((self.root / "settings.json").read_bytes(), self.initial_raw)
+
+    def test_corrupt_wallpaper_metadata_does_not_block_status(self):
+        path = self.root / "state/wallpaper-info.json"
+        for entry in (None, [], "invalid", {"filename": None}, {"filename": []}):
+            path.write_text(json.dumps({"wallpaper/current.png": entry}), encoding="utf-8")
+            with self.subTest(entry=entry), mock.patch.object(self.controller, "_socket", return_value={"connected": False}):
+                status = self.controller.status()
+                self.assertEqual(status["wallpaper"]["filename"], "current.png")
+            self.assertEqual((self.root / "settings.json").read_bytes(), self.initial_raw)
+
+    def test_non_object_state_uses_fallback(self):
+        path = self.root / "state/panel.json"
+        for value in (None, [], "invalid", 7, True):
+            path.write_text(json.dumps(value), encoding="utf-8")
+            with self.subTest(value=value):
+                self.assertEqual(self.controller._read_state("panel.json", {}), {})
+                self.assertIsNone(self.controller._alive_panel())
+
+    def test_malformed_panel_ping_is_not_reused(self):
+        handoff = {"port": 54321, "token": "a" * 32, "instance": "b" * 32}
+        (self.root / "state/panel.json").write_text(json.dumps(handoff), encoding="utf-8")
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        opener = mock.Mock()
+        opener.open.return_value = response
+        for reply in ([], None, "invalid", {}, {"instance": "other"}):
+            response.read.return_value = json.dumps(reply).encode("utf-8")
+            with self.subTest(reply=reply), mock.patch.object(control.urllib.request, "build_opener", return_value=opener):
+                self.assertIsNone(self.controller._alive_panel())
+
+        handoff.pop("instance")
+        (self.root / "state/panel.json").write_text(json.dumps(handoff), encoding="utf-8")
+        response.read.return_value = b"{}"
+        with mock.patch.object(control.urllib.request, "build_opener", return_value=opener):
+            self.assertIsNone(self.controller._alive_panel())
+
     def test_wallpaper_cannot_escape_root_via_config_or_symlink(self):
         outside = Path(tempfile.gettempdir()) / "outside.png"
         (self.root / "wallpaper/outside.png").symlink_to(outside)
@@ -176,6 +218,27 @@ class ControllerCase(unittest.TestCase):
                     process.wait(timeout=2)
             self.assertFalse((self.root / "state/panel.json").exists())
 
+    def test_detached_panel_recovers_non_object_handoff_and_cleans_up(self):
+        path = self.root / "state/panel.json"
+        path.write_text("[]", encoding="utf-8")
+        children_before = set(control._PANEL_CHILDREN)
+        children = []
+        try:
+            url = self.controller.start_panel()
+            children = [child for child in control._PANEL_CHILDREN if child not in children_before]
+            self.assertEqual(self.controller.start_panel(), url)
+            handoff = self.controller._read_state("panel.json")
+            self.assertIsInstance(handoff, dict)
+            self.assertEqual(handoff["pid"], children[0].pid)
+        finally:
+            # Cleanup does not rely on the malformed handoff under test.
+            children = [child for child in control._PANEL_CHILDREN if child not in children_before]
+            for child in children:
+                if child.poll() is None:
+                    child.terminate()
+                child.wait(timeout=3)
+        self.assertFalse(path.exists())
+
     def test_real_decoder_rejects_corrupt_compressed_png(self):
         if control.sys.platform != "darwin":
             self.skipTest("macOS ImageIO decode check")
@@ -249,6 +312,13 @@ class PanelCase(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/upload", b"", {"Content-Length": str(control.MAX_IMAGE_BYTES + 1)})[0], 400)
         self.assertEqual(self.request("POST", "/api/upload", b"bad", {"Transfer-Encoding": "chunked"})[0], 400)
         self.assertEqual(self.request("POST", "/api/reset", b"", auth=False)[0], 403)
+
+    def test_extreme_integer_settings_return_json_error(self):
+        with mock.patch.object(control, "_decode_image"):
+            code, _, data = self.request("POST", "/api/settings", json.dumps({"mainAlpha": 10 ** 400}), {"Content-Type": "application/json"})
+        self.assertEqual(code, 400)
+        self.assertIn("mainAlpha", json.loads(data)["error"])
+        self.assertEqual((self.root / "settings.json").read_bytes(), self.initial_raw)
 
 
 if __name__ == "__main__":

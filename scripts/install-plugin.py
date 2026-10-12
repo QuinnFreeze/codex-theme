@@ -9,6 +9,31 @@ import subprocess
 import sys
 
 
+# Match the release allowlist in scripts/build-plugin.py, including bundled theme files.
+PLUGIN_FILES = ("plugin.json", "mcp.json", "README.md", ".codex-plugin/plugin.json")
+PLUGIN_DIRECTORIES = ("scripts", "assets", "skills")
+THEME_FILES = ("settings.json", "README.md")
+THEME_DIRECTORIES = ("scripts", "styles", "wallpaper")
+
+
+def copy_distribution(source, destination):
+    destination.mkdir(parents=True)
+    for filename in PLUGIN_FILES:
+        target = destination / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / filename, target)
+    for directory in PLUGIN_DIRECTORIES:
+        shutil.copytree(source / directory, destination / directory,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    theme = destination / "theme"
+    theme.mkdir()
+    for filename in THEME_FILES:
+        shutil.copy2(source / "theme" / filename, theme / filename)
+    for directory in THEME_DIRECTORIES:
+        shutil.copytree(source / "theme" / directory, theme / directory,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "compiled.css"))
+
+
 def main():
     root = Path(__file__).resolve().parents[1]
     source = root / "plugins/codex-liquid-glass"
@@ -47,7 +72,7 @@ def main():
     if stage.exists():
         shutil.rmtree(stage)
     stage.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, stage, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    copy_distribution(source, stage)
     catalog = distribution / ".agents/plugins/marketplace.json"
     catalog.parent.mkdir(parents=True, exist_ok=True)
     old_catalog = catalog.read_bytes() if catalog.exists() else None

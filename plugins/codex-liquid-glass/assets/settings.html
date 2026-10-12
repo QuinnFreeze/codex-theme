@@ -126,17 +126,17 @@
           <fieldset id="image-controls" disabled>
             <legend>图像</legend>
             <div class="fit-row"><label for="fit">显示方式</label><select id="fit" name="fit"><option value="cover">填满窗口</option><option value="contain">显示完整图片</option></select></div>
-            <div class="control"><div class="control-label"><label for="position-x">水平位置</label><output for="position-x" id="position-x-value">60%</output></div><input id="position-x" type="range" min="0" max="100" step="1" value="60"></div>
-            <div class="control"><div class="control-label"><label for="position-y">垂直位置</label><output for="position-y" id="position-y-value">42%</output></div><input id="position-y" type="range" min="0" max="100" step="1" value="42"></div>
-            <div class="control"><div class="control-label"><label for="wallpaperBrightness">壁纸亮度</label><output for="wallpaperBrightness" id="wallpaperBrightness-value">100%</output></div><input id="wallpaperBrightness" type="range" min="0.25" max="2" step="0.01" value="1"></div>
-            <div class="control"><div class="control-label"><label for="wallpaperBlur">壁纸模糊</label><output for="wallpaperBlur" id="wallpaperBlur-value">0 px</output></div><input id="wallpaperBlur" type="range" min="0" max="24" step="1" value="0"></div>
+            <div class="control"><div class="control-label"><label for="position-x">水平位置</label><output for="position-x" id="position-x-value">60%</output></div><input id="position-x" type="range" min="0" max="100" step="any" value="60"></div>
+            <div class="control"><div class="control-label"><label for="position-y">垂直位置</label><output for="position-y" id="position-y-value">42%</output></div><input id="position-y" type="range" min="0" max="100" step="any" value="42"></div>
+            <div class="control"><div class="control-label"><label for="wallpaperBrightness">壁纸亮度</label><output for="wallpaperBrightness" id="wallpaperBrightness-value">100%</output></div><input id="wallpaperBrightness" type="range" min="0.25" max="2" step="any" value="1"></div>
+            <div class="control"><div class="control-label"><label for="wallpaperBlur">壁纸模糊</label><output for="wallpaperBlur" id="wallpaperBlur-value">0 px</output></div><input id="wallpaperBlur" type="range" min="0" max="24" step="any" value="0"></div>
           </fieldset>
           <fieldset id="glass-controls" disabled>
             <legend>玻璃不透明度 · 浅色外观</legend>
-            <div class="control"><div class="control-label"><label for="mainAlpha">主窗口</label><output for="mainAlpha" id="mainAlpha-value">8%</output></div><input id="mainAlpha" type="range" min="0" max="1" step="0.01" value="0.08"></div>
-            <div class="control"><div class="control-label"><label for="sidebarAlpha">侧边栏</label><output for="sidebarAlpha" id="sidebarAlpha-value">72%</output></div><input id="sidebarAlpha" type="range" min="0" max="1" step="0.01" value="0.72"></div>
-            <div class="control"><div class="control-label"><label for="floatingAlpha">输入框与浮层</label><output for="floatingAlpha" id="floatingAlpha-value">86%</output></div><input id="floatingAlpha" type="range" min="0" max="1" step="0.01" value="0.86"></div>
-            <div class="control"><div class="control-label"><label for="scrimAlpha">壁纸遮罩</label><output for="scrimAlpha" id="scrimAlpha-value">22%</output></div><input id="scrimAlpha" type="range" min="0" max="1" step="0.01" value="0.22"></div>
+            <div class="control"><div class="control-label"><label for="mainAlpha">主窗口</label><output for="mainAlpha" id="mainAlpha-value">8%</output></div><input id="mainAlpha" type="range" min="0" max="1" step="any" value="0.08"></div>
+            <div class="control"><div class="control-label"><label for="sidebarAlpha">侧边栏</label><output for="sidebarAlpha" id="sidebarAlpha-value">72%</output></div><input id="sidebarAlpha" type="range" min="0" max="1" step="any" value="0.72"></div>
+            <div class="control"><div class="control-label"><label for="floatingAlpha">输入框与浮层</label><output for="floatingAlpha" id="floatingAlpha-value">86%</output></div><input id="floatingAlpha" type="range" min="0" max="1" step="any" value="0.86"></div>
+            <div class="control"><div class="control-label"><label for="scrimAlpha">壁纸遮罩</label><output for="scrimAlpha" id="scrimAlpha-value">22%</output></div><input id="scrimAlpha" type="range" min="0" max="1" step="any" value="0.22"></div>
             <p class="settings-note">不透明度越低，壁纸越清晰。深色外观保留原主题的阅读对比度。</p>
           </fieldset>
           <div class="actions"><button class="reset" id="reset" type="button" disabled>恢复默认</button><button class="apply" id="apply" type="submit" disabled>应用更改</button></div>
@@ -205,7 +205,8 @@
         for (const key of ['main', 'sidebar', 'floating', 'scrim']) css.setProperty(`--${key}-alpha`, settings[`${key}Alpha`]);
         for (const id of rangeIds) {
           const value = Number($(id).value);
-          $(`${id}-value`).textContent = id === 'wallpaperBlur' ? `${value} px` : `${Math.round(value * (id.startsWith('position-') ? 1 : 100))}%`;
+          const displayValue = Number((value * (id.startsWith('position-') || id === 'wallpaperBlur' ? 1 : 100)).toFixed(2));
+          $(`${id}-value`).textContent = id === 'wallpaperBlur' ? `${displayValue} px` : `${displayValue}%`;
           $(id).setAttribute('aria-valuetext', $(`${id}-value`).textContent);
         }
       };

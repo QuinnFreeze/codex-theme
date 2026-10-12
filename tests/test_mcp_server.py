@@ -17,7 +17,8 @@ def requests(theme, calls):
                 for i, (method, params) in enumerate(calls)]
     result = subprocess.run([sys.executable, str(SERVER)],
                             input="".join(json.dumps(m) + "\n" for m in messages),
-                            capture_output=True, text=True, timeout=15,
+                            # The server executes requests serially, including image decoding.
+                            capture_output=True, text=True, timeout=15 * max(1, len(calls)),
                             env=dict(os.environ, CODEX_THEME_ROOT=str(theme)))
     if result.returncode:
         raise AssertionError(result.stderr)
@@ -25,6 +26,58 @@ def requests(theme, calls):
 
 
 class McpProtocolTests(unittest.TestCase):
+    def test_malformed_requests_are_rejected_without_breaking_stdio(self):
+        wire = [
+            '{broken json',
+            json.dumps('not a request'),
+            json.dumps({'jsonrpc': '1.0', 'id': 8, 'method': 'ping'}),
+            json.dumps({'jsonrpc': '2.0', 'id': 9, 'method': 'tools/list', 'params': []}),
+            json.dumps({'jsonrpc': '2.0', 'id': 10, 'method': 'initialize', 'params': None}),
+            json.dumps({'jsonrpc': '2.0', 'id': 11, 'method': 'ping'}),
+            json.dumps({'jsonrpc': '2.0', 'method': 'notifications/initialized'}),
+        ]
+        with tempfile.TemporaryDirectory() as home:
+            result = subprocess.run([sys.executable, str(SERVER)], input='\n'.join(wire) + '\n',
+                capture_output=True, text=True, timeout=15, env=dict(os.environ, CODEX_THEME_ROOT=home))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        replies = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual(len(replies), 6)
+        self.assertEqual([reply['error']['code'] for reply in replies[:5]],
+                         [-32700, -32600, -32600, -32602, -32602])
+        self.assertEqual([reply['id'] for reply in replies], [None, None, None, 9, 10, 11])
+        self.assertEqual(replies[-1]['result'], {})
+
+    def test_invalid_status_arguments_are_rejected_before_install_check(self):
+        with tempfile.TemporaryDirectory() as home:
+            replies = requests(Path(home) / 'missing', [
+                ('tools/call', {'name': 'get_theme_status', 'arguments': {'unexpected': True}}),
+                ('tools/call', {'name': 'get_theme_status', 'arguments': []}),
+                ('tools/call', {'name': 'get_theme_status', 'arguments': {}}),
+            ])
+        self.assertTrue(all(reply['result'].get('isError') for reply in replies[:2]))
+        self.assertFalse(replies[-1]['result'].get('isError', False))
+        self.assertIs(json.loads(replies[-1]['result']['content'][0]['text'])['installed'], False)
+
+    def test_invalid_request_ids_cannot_mutate_settings(self):
+        with tempfile.TemporaryDirectory() as home:
+            theme = Path(home)
+            shutil.copy2(ROOT / 'theme/settings.json', theme / 'settings.json')
+            (theme / 'wallpaper').mkdir()
+            shutil.copy2(ROOT / 'theme/wallpaper/current.jpg', theme / 'wallpaper/current.jpg')
+            original = (theme / 'settings.json').read_bytes()
+            wire = [json.dumps({'jsonrpc': '2.0', 'id': request_id, 'method': 'tools/call',
+                               'params': {'name': 'update_theme_settings', 'arguments': {'settings': {'mainAlpha': 0.25}}}})
+                    for request_id in (None, True, 1.5)]
+            wire.append(json.dumps({'jsonrpc': '2.0', 'id': 'valid', 'method': 'ping'}))
+            result = subprocess.run([sys.executable, str(SERVER)], input='\n'.join(wire) + '\n',
+                capture_output=True, text=True, timeout=15, env=dict(os.environ, CODEX_THEME_ROOT=home))
+            self.assertEqual((theme / 'settings.json').read_bytes(), original)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        replies = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual(len(replies), 4)
+        self.assertTrue(all(reply['id'] is None and reply['error']['code'] == -32600 for reply in replies[:3]))
+        self.assertEqual(replies[-1], {'jsonrpc': '2.0', 'id': 'valid', 'result': {}})
+
     def test_discovery_works_before_theme_install_and_status_guides_setup(self):
         with tempfile.TemporaryDirectory() as home:
             replies = requests(Path(home) / "missing", [

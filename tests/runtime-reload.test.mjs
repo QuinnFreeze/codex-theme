@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 import {build, root} from '../theme/scripts/build.mjs';
 import {configDigest, documentExpression, reloadSessions} from '../theme/scripts/runtime.mjs';
+import * as runtime from '../theme/scripts/runtime.mjs';
 
 const originalWebSocket = globalThis.WebSocket;
 globalThis.WebSocket = {OPEN: 1};
@@ -68,6 +69,156 @@ function harness(entries) {
     snapshots,
   };
 }
+
+function daemonRemovalHarness(entries, pages = async () => [], Connection = class {
+  constructor() { throw Error('the isolated fallback probe requires a mocked connection'); }
+}) {
+  const source = fs.readFileSync(path.join(root, 'scripts/runtime.mjs'), 'utf8');
+  const start = source.indexOf('  const remove = async () => {');
+  const end = source.indexOf('\n  try {\n    fs.unlinkSync(socketPath);', start);
+  assert.ok(start !== -1 && end !== -1, 'the isolated probe must execute the real daemon cleanup');
+  const state = harness(entries);
+  state.persistenceOptions = [];
+  const context = {
+    ...state, stopping: false, browserDead: false, pages, Connection, port: 9999,
+    browser: {close() {}}, removeExpression: 'mock document cleanup',
+    persistRegistry: retainEmpty => { state.persistenceOptions.push(retainEmpty); state.persist(); },
+    removeTargetTheme: runtime.removeTargetTheme, console,
+  };
+  return {state, run: () => vm.runInNewContext(source.slice(start, end) + '\nremove()', context)};
+}
+
+test('document cleanup failure remains retryable and never confirms daemon removal', async () => {
+  let failDocument = true;
+  const mock = mockSession('main');
+  mock.session.c.close = () => {};
+  mock.session.c.eval = async () => {
+    if (failDocument) throw Error('temporary document cleanup failure');
+    return {removed: true};
+  };
+  const fallback = daemonRemovalHarness([['main', mock]]);
+  const failed = await fallback.run();
+  assert.equal(failed.removed, false);
+  assert.match(failed.errors[0].error, /document cleanup failure/);
+  assert.deepEqual(fallback.state.registry.main, [], 'an empty registration marks pending document cleanup');
+
+  failDocument = false;
+  const retry = await runtime.removeTargetTheme('main', mock.session.c, fallback.state);
+  assert.deepEqual(retry, []);
+  assert.equal(Object.hasOwn(fallback.state.registry, 'main'), false);
+});
+
+test('failed document cleanup preserves successful removal from other sessions', async () => {
+  const failed = mockSession('main');
+  const successful = mockSession('detached', {main: false});
+  for (const mock of [failed, successful]) mock.session.c.close = () => {};
+  failed.session.c.eval = async () => { throw Error('main document unavailable'); };
+  successful.session.c.eval = async () => ({removed: true});
+  const probe = daemonRemovalHarness([['main', failed], ['detached', successful]]);
+  const result = await probe.run();
+  assert.equal(result.removed, false);
+  assert.deepEqual(probe.state.registry, {main: []});
+  assert.equal(successful.hooks.size, 0);
+  assert.equal(failed.hooks.size, 0);
+  assert.equal(result.errors.length, 1);
+});
+
+test('daemon cleanup retains empty retry state when fallback inventory is unverified', async t => {
+  t.mock.method(console, 'error', () => {});
+  const mock = mockSession('main');
+  mock.session.c.close = () => {};
+  mock.session.c.eval = async () => ({removed: true});
+  const probe = daemonRemovalHarness([['main', mock]], async () => { throw Error('inventory unavailable'); });
+  const result = await probe.run();
+  assert.equal(result.removed, false);
+  assert.match(result.errors.at(-1).error, /inventory unavailable/);
+  assert.equal(probe.state.persistenceOptions.at(-1), true, 'keep an empty state file so standalone cleanup can retry');
+});
+
+test('daemon cleanup confirms removal after a temporary document failure recovers', async () => {
+  const mock = mockSession('main');
+  let attempts = 0;
+  mock.session.c.close = () => {};
+  mock.session.c.eval = async () => {
+    if (++attempts === 1) throw Error('temporary document failure');
+    return {removed: true};
+  };
+  const probe = daemonRemovalHarness([['main', mock]], async () => [{
+    id: 'main', webSocketDebuggerUrl: 'ws://127.0.0.1:9999/mock',
+  }], class { constructor() { return mock.session.c; } });
+  const result = await probe.run();
+  assert.equal(result.removed, true);
+  assert.equal(attempts, 2);
+  assert.deepEqual(probe.state.registry, {});
+  assert.equal(result.errors.length, 1, 'report the recovered failure without turning verified removal into failure');
+});
+
+test('retirement retains document retry state when no hook registration existed', async t => {
+  t.mock.method(console, 'error', () => {});
+  const mock = mockSession('main');
+  mock.session.script = null;
+  mock.session.c.close = () => {};
+  mock.session.c.eval = async () => { throw Error('document unavailable'); };
+  const state = {sessions: new Map([['main', mock.session]]), registry: {}, persist() {}};
+  await runtime.retireSession('main', mock.session, state);
+  assert.deepEqual(state.registry.main, []);
+  assert.equal(state.sessions.has('main'), false);
+});
+
+test('unconfirmed document removal retains its pending cleanup registration', async () => {
+  const mock = mockSession('main');
+  mock.session.c.eval = async () => ({removed: false});
+  const state = harness([['main', mock]]);
+  const errors = await runtime.removeTargetTheme('main', mock.session.c, state);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].stage, 'document');
+  assert.deepEqual(state.registry.main, []);
+});
+
+test('standalone cleanup retries an empty pending document registration', async () => {
+  const source = fs.readFileSync(path.join(root, 'scripts/runtime.mjs'), 'utf8');
+  const start = source.indexOf("if (command === 'once-remove') {");
+  const end = source.indexOf("\nif (command === 'daemon') {", start);
+  let saved = JSON.stringify({main: []}), deleted = false, evaluated = 0;
+  const replies = [];
+  const context = {
+    command: 'once-remove', port: 9999, registryPath: '/mock/registrations.json',
+    ensureStateDir() {}, removeTargetTheme: runtime.removeTargetTheme,
+    pages: async () => [{id: 'main', webSocketDebuggerUrl: 'ws://127.0.0.1:9999/mock'}],
+    Connection: class {
+      async call() { throw Error('an empty registration must not remove a hook'); }
+      async eval() { evaluated++; return {removed: true}; }
+      close() {}
+    },
+    fs: {existsSync: () => true, readFileSync: () => saved,
+      writeFileSync: (_path, value) => { saved = value; }, rmSync: () => { deleted = true; }},
+    console: {log: value => replies.push(JSON.parse(value))},
+  };
+  await vm.runInNewContext('(async () => {' + source.slice(start, end) + '})()', context);
+  assert.equal(evaluated, 1);
+  assert.equal(deleted, true);
+  assert.equal(replies[0].removed, true);
+});
+
+test('standalone cleanup does not confirm removal when target inventory fails', async () => {
+  const source = fs.readFileSync(path.join(root, 'scripts/runtime.mjs'), 'utf8');
+  const start = source.indexOf("if (command === 'once-remove') {");
+  const end = source.indexOf("\nif (command === 'daemon') {", start);
+  let deleted = false;
+  const replies = [];
+  const context = {
+    command: 'once-remove', port: 9999, registryPath: '/mock/registrations.json',
+    ensureStateDir() {}, removeTargetTheme: runtime.removeTargetTheme,
+    pages: async () => { throw Error('inventory unavailable'); },
+    fs: {existsSync: () => true, readFileSync: () => '{}',
+      writeFileSync() {}, rmSync: () => { deleted = true; }},
+    console: {log: value => replies.push(JSON.parse(value))},
+  };
+  await vm.runInNewContext('(async () => {' + source.slice(start, end) + '})()', context);
+  assert.equal(replies[0].removed, false);
+  assert.equal(deleted, false);
+  assert.match(replies[0].errors[0].error, /inventory unavailable/);
+});
 
 function fixture(t) {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-theme-build-'));
